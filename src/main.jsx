@@ -73,7 +73,15 @@ function App() {
   useEffect(() => { cloud.onSyncError(e => notify('مقدرناش نحفظ تغييراتك في حسابك: ' + cloud.friendlyError(e), 'err')); return () => cloud.onSyncError(() => {}); }, [notify]);
   const go = useCallback(p => { window.location.hash = '#/' + p; }, []);
   /* extra: {kind:'wrong', idxs} لو الامتحان من الأخطاء بس (idxs = أرقامها في الامتحان المحفوظ) */
-  const startExam = useCallback((qs, name, subject, id, extra) => { setExam({ qs, name, subject, id, kind: 'full', idxs: null, ...extra, aid: uid() }); go('exam'); }, [go]);
+  const startExam = useCallback((qs, name, subject, id, extra) => {
+    /* الاختياري كله الأول وبعده المقالي كله، مع الحفاظ على أرقام الأسئلة الأصلية في الامتحان المحفوظ */
+    const base = extra && extra.idxs ? extra.idxs : qs.map((_, k) => k);
+    const ord = qs.map((q, k) => k).sort((x, y) => ((qs[x].type === 'mcq' ? 0 : 1) - (qs[y].type === 'mcq' ? 0 : 1)) || x - y);
+    const sorted = ord.map(k => qs[k]);
+    const idxs = (extra && extra.idxs) || id ? ord.map(k => base[k]) : null;
+    setExam({ qs: sorted, name, subject, id, kind: 'full', ...extra, idxs, aid: uid() });
+    go('exam');
+  }, [go]);
 
   const needsExam = (r === 'exam' || r === 'result') && !exam;
   useEffect(() => { if (needsExam) window.location.replace('#/'); }, [needsExam]);

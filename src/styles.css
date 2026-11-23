@@ -482,3 +482,4 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
   .subjects.tools{grid-template-columns:1fr}
   .subject-card.tool{min-height:0;padding:14px}
 }
+.total{font-weight:800;margin-top:6px}

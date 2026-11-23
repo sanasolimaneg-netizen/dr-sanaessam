@@ -183,11 +183,13 @@ const ReviewCard = React.memo(function ReviewCard({ q, i, onSelf }) {
       {head}
       <div className="exp mine"><b>إجابتك</b>{q.user && q.user.trim() ? q.user : 'ما كتبتش إجابة'}</div>
       <div className="exp model"><b>الإجابة النموذجية</b>{q.model || 'مفيش إجابة نموذجية مسجلة للسؤال ده'}</div>
-      <div className="self"><span>قيّم إجابتك:</span>
-        {[['ok', 'صح'], ['part', 'جزئي'], ['bad', 'غلط']].map(([v, t]) => (
-          <button key={v} className={cx('btn sm', q.self === v ? 'primary' : 'ghost')} aria-pressed={q.self === v} onClick={() => onSelf(i, v)}>{t}</button>
-        ))}
-      </div>
+      {q.user && q.user.trim()
+        ? <div className="self"><span>قيّم إجابتك:</span>
+          {[['ok', 'صح (1)'], ['part', 'جزئي (0.5)'], ['bad', 'غلط (0)']].map(([v, t]) => (
+            <button key={v} className={cx('btn sm', q.self === v ? 'primary' : 'ghost')} aria-pressed={q.self === v} onClick={() => onSelf(i, v)}>{t}</button>
+          ))}
+        </div>
+        : <div className="verdict bad">ما كتبتش إجابة، اتحسب غلط</div>}
       {q.src && <div className="muted small src">من: {q.src}</div>}
     </section>
   );
@@ -199,9 +201,17 @@ export function ResultPage({ exam, setExam, go }) {
   const [filter, setFilter] = useState('all');
   const keyed = qs.filter(q => q.type === 'mcq' && q.correct != null);
   const right = keyed.filter(q => q.user === q.correct).length;
-  const pct = keyed.length ? Math.round(right / keyed.length * 100) : 0;
   const essays = qs.filter(q => q.type === 'essay');
+  /* المقالي: صح = 1، جزئي = 0.5، غلط = 0. اللي ما اتكتبتش إجابته بيتحسب غلط تلقائي، واللي لسه ما اتقيّمش بيتحسب صفر لحد ما تقيّمه */
+  const essayDone = q => !!(q.user && q.user.trim());
+  const essayPts = q => (!essayDone(q) ? 0 : q.self === 'ok' ? 1 : q.self === 'part' ? 0.5 : 0);
+  const essayScore = essays.reduce((t, q) => t + essayPts(q), 0);
+  const essayPending = essays.filter(q => essayDone(q) && q.self == null).length;
   const cnt = v => essays.filter(q => q.self === v).length;
+  const totalMax = keyed.length + essays.length;
+  const totalScore = right + essayScore;
+  const pct = totalMax ? Math.round(totalScore / totalMax * 100) : 0;
+  const num = x => (Number.isInteger(x) ? String(x) : x.toFixed(1));
   const wrongN = qs.filter(isWrong).length;
   const noKey = qs.some(q => q.type === 'mcq' && q.correct == null);
   const grade = pct >= 85 ? 'ممتاز، كمّل كده' : pct >= 65 ? 'كويس، راجع الأخطاء' : pct >= 50 ? 'مقبول، محتاج مراجعة' : 'محتاج مذاكرة أكتر، ارجع للشرح';
@@ -219,9 +229,9 @@ export function ResultPage({ exam, setExam, go }) {
     /* بنسجّل المحاولة (والأخطاء بأرقامها الأصلية واختيارك فيها) عشان تتحدّث «الأخطاء فقط» وتظهر في سجل النتايج */
     if (exam.id) {
       const wrong = qs.map((q, k) => (isWrong(q) ? { i: exam.idxs ? exam.idxs[k] : k, u: q.user } : null)).filter(Boolean);
-      recordResult(exam.id, { aid: exam.aid, at: Date.now(), kind: exam.kind || 'full', pct, right, total: keyed.length, essays: essays.length, wrong });
+      recordResult(exam.id, { aid: exam.aid, at: Date.now(), kind: exam.kind || 'full', pct, right: totalScore, total: totalMax, mcqRight: right, mcqTotal: keyed.length, essayScore, essays: essays.length, wrong });
     }
-  }, [exam.id, exam.aid, pct, right, keyed.length, wrongN]);
+  }, [exam.id, exam.aid, pct, totalScore, totalMax, wrongN]);
 
   const TABS = [['all', 'كل الأسئلة', qs.length], ['wrong', 'الأخطاء', wrongN]];
   if (essays.length) TABS.push(['essay', 'المقالي', essays.length]);
@@ -233,14 +243,17 @@ export function ResultPage({ exam, setExam, go }) {
       <p className="muted">{exam.name}</p>
 
       <div className="card summary-card">
-        {keyed.length > 0 && <Ring pct={pct} />}
+        {totalMax > 0 && <Ring pct={pct} />}
         <div className="stats">
+          {totalMax > 0 && <div className="grade">{grade}</div>}
           {keyed.length > 0 && <>
-            <div className="grade">{grade}</div>
-            <div>درجة الاختياري: <strong>{right} / {keyed.length}</strong></div>
-            <div>الأخطاء: <strong>{keyed.length - right}</strong>{noKey && <span className="muted small"> (فيه أسئلة من غير مفتاح إجابة ومش محسوبة)</span>}</div>
+                        <div>درجة الاختياري: <strong>{right} / {keyed.length}</strong>{noKey && <span className="muted small"> (فيه أسئلة من غير مفتاح إجابة ومش محسوبة)</span>}</div>
           </>}
-          {essays.length > 0 && <div>المقالي: {essays.length} سؤال، تقييمك لنفسك: صح <strong>{cnt('ok')}</strong> · جزئي <strong>{cnt('part')}</strong> · غلط <strong>{cnt('bad')}</strong></div>}
+          {essays.length > 0 && <>
+            <div>درجة المقالي: <strong>{num(essayScore)} / {essays.length}</strong> <span className="muted small">(صح {cnt('ok')} · جزئي {cnt('part')} · غلط {essays.filter(q => !essayDone(q) || q.self === 'bad').length})</span></div>
+            {essayPending > 0 && <div className="muted small">فيه {essayPending} سؤال مقالي لسه ما قيّمتهوش، قيّمه من تبويب «المقالي» وهتتحدث الدرجة.</div>}
+          </>}
+          {totalMax > 0 && <div className="total">الدرجة الإجمالية: <strong>{num(totalScore)} / {totalMax}</strong> ({pct}%)</div>}
         </div>
       </div>
 
