@@ -449,3 +449,14 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
 .h1s{font-size:26px;margin:0}
 .users-page .card-head{margin-bottom:14px}
 .field select{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:180px}
+
+/* شريط التنقل (المواد · نتائجي · المستخدمون · إضافة مستخدم · تسجيل الخروج): بقى في مكانه الطبيعي تحت الهيدر ومابيركبش على المحتوى */
+:root{--pt:16px}
+.subnav{position:static;height:auto;z-index:auto;border:0;background:transparent}
+.subnav-in{position:static;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:8px;height:auto;padding-top:12px;padding-bottom:0;pointer-events:auto}
+.subnav .nav-link{pointer-events:auto;white-space:nowrap}
+.subnav button.nav-link{border:0;cursor:pointer;font:inherit;font-weight:600;font-size:17px}
+.subnav .nav-link.out{margin-inline-start:auto;color:var(--danger,#dc2626);background:transparent;box-shadow:none;border:1px solid var(--line)}
+.hero{padding-top:var(--pt)}
+.crumbs{margin-top:12px}
+@media (max-width:520px){.subnav .nav-link,.subnav button.nav-link{font-size:15px;padding:8px 10px}}

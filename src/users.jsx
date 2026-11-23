@@ -131,7 +131,7 @@ function EditUserModal({ acc, onClose, onSaved }) {
 }
 
 /* صفحة المستخدمين (للمالك بس) */
-export function UsersPage() {
+export function UsersPage({ openNew }) {
   const notify = useToast();
   const [list, setList] = useState(null);
   const [err, setErr] = useState('');
@@ -144,6 +144,8 @@ export function UsersPage() {
     try { setList(await cloud.listAccounts()); } catch (e) { setErr(cloud.friendlyError(e)); setList([]); }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (openNew) setAdding(true); }, [openNew]);
+  const closeAdd = () => { setAdding(false); if (window.location.hash === '#/users/new') window.location.hash = '#/users'; };
 
   const sorted = useMemo(() => (list || []).slice().sort((a, b) => (a.role === 'owner' ? -1 : 0) - (b.role === 'owner' ? -1 : 0) || (a.createdAt || 0) - (b.createdAt || 0)), [list]);
   const patch = acc => setList(l => l.map(x => (x.uid === acc.uid ? acc : x)));
@@ -185,7 +187,7 @@ export function UsersPage() {
         ))}
         {list && list.length === 0 && !err && <p className="muted">لسه مفيش مستخدمين.</p>}
       </div>
-      {adding && <NewUserModal onClose={() => setAdding(false)} onCreated={acc => setList(l => [...(l || []), acc])} />}
+      {adding && <NewUserModal onClose={closeAdd} onCreated={acc => setList(l => [...(l || []), acc])} />}
       {deleting && (
         <Modal title="حذف المستخدم" onClose={() => setDeleting(null)}
           footer={<>

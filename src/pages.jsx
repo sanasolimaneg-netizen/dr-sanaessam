@@ -35,6 +35,14 @@ export function Home() {
 
       <h2 className="section-title">اختار المادة</h2>
       <div className="subjects">
+        <a className="subject-card" href="#/results" style={{ '--accent': '#0d9488' }}>
+          <span className="badge"><Icon name="results" size={28} /></span>
+          <span className="sc-body">
+            <b>نتائجي</b>
+            <span className="sc-meta">نتايج امتحانات كل المواد</span>
+          </span>
+          <Icon name="back" size={20} className="sc-arrow" />
+        </a>
         {subs.map(s => {
           const st = stat(s.key);
           return (
@@ -123,7 +131,7 @@ export function SubjectPage({ subject, startExam }) {
     { k: 'library', t: 'الدروس', icon: 'list', n: stats.pages + stats.legacy },
     { k: 'exam', t: 'إنشاء امتحان', icon: 'play', n: picked.length || null },
     { k: 'exams', t: 'الامتحانات', icon: 'exams', n: exams.length },
-    { k: 'results', t: 'نتائجي', icon: 'check' },
+    { k: 'results', t: 'نتائجي', icon: 'results' },
   ];
   /* المستخدم بيشوف الصفحات المسموحله بس (المالك بيحدد ده) */
   const allowed = TABS.filter(t => can.tab(t.k));
@@ -947,6 +955,7 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
 }
 
 /* ---------- نتائجي: نتايج الامتحانات (والمالك يقدر يشوف نتايج أي مستخدم) ---------- */
+/* subject = null معناها كل المواد (صفحة نتائجي الرئيسية) */
 function ResultsTab({ subject, exams, active }) {
   const { can } = useContext(AuthCtx);
   const notify = useToast();
@@ -968,7 +977,7 @@ function ResultsTab({ subject, exams, active }) {
       if (!live) return;
       const base = exams.filter(e => !e._sh).map(e => ({ ...e, history: undefined, last: null, best: 0, attempts: 0 }));
       const ids = new Set(base.map(e => e.id));
-      const items = [...base, ...v.exams.filter(e => !ids.has(e.id) && e.subject === subject)]
+      const items = [...base, ...v.exams.filter(e => !ids.has(e.id) && (!subject || e.subject === subject))]
         .map(e => (v.results[e.id] ? { ...e, ...v.results[e.id] } : e))
         .sort((a, b) => (b.created || 0) - (a.created || 0));
       setOther({ loading: false, items });
@@ -986,7 +995,7 @@ function ResultsTab({ subject, exams, active }) {
   return (
     <section className="exams-list" aria-labelledby="res-h">
       <div className="card-head">
-        <h2 id="res-h"><Icon name="check" size={20} className="ic" /> {viewing ? 'نتايج ' + (viewing.name || viewing.identifier) : 'نتائجي'}</h2>
+        <h2 id="res-h"><Icon name="results" size={20} className="ic" /> {viewing ? 'نتايج ' + (viewing.name || viewing.identifier) : 'نتائجي'}</h2>
         {can.owner && (
           <div className="field" style={{ margin: 0 }}>
             <label htmlFor="res-who" className="sr">عرض نتايج</label>
@@ -1000,7 +1009,7 @@ function ResultsTab({ subject, exams, active }) {
 
       {other && other.loading && <p className="muted">جاري التحميل...</p>}
       {!(other && other.loading) && items.length === 0 && (
-        <div className="card setup empty-setup"><p className="muted">مفيش امتحانات في المادة دي لسه.</p></div>
+        <div className="card setup empty-setup"><p className="muted">مفيش امتحانات {subject ? 'في المادة دي ' : ''}لسه.</p></div>
       )}
       {!(other && other.loading) && items.length > 0 && (
         <div className="card">
@@ -1015,7 +1024,7 @@ function ResultsTab({ subject, exams, active }) {
           <article key={ex.id} className="card exam-item">
             <div className="ei-main">
               <h3>{ex.name} {ex._sh && <span className="count">من المالك</span>}</h3>
-              <div className="muted small">{ex.qs ? ex.qs.length + ' سؤال · ' : ''}{hist.length ? `${hist.length} محاولة` : 'لسه ما اتحلش'}</div>
+              <div className="muted small">{!subject && subjectMeta(ex.subject) ? subjectMeta(ex.subject).label + ' · ' : ''}{ex.qs ? ex.qs.length + ' سؤال · ' : ''}{hist.length ? `${hist.length} محاولة` : 'لسه ما اتحلش'}</div>
               {hist.length > 0 && last.total > 0 && (
                 <div className={cx('ei-score', last.pct >= 50 ? 'ok' : 'bad')}>
                   آخر نتيجة: <b>{last.right} / {last.total}</b> ({last.pct}%)
@@ -1041,6 +1050,18 @@ function ResultsTab({ subject, exams, active }) {
       })}
       {review && <ReviewWrong ex={review.ex} h={review.h} n={review.n} onClose={() => setReview(null)} />}
     </section>
+  );
+}
+
+/* صفحة نتائجي الرئيسية: نتايج كل المواد */
+export function ResultsPage() {
+  const { can } = useContext(AuthCtx);
+  const exams = useMemo(() => loadExams().filter(e => can.subject(e.subject)).sort((a, b) => (b.created || 0) - (a.created || 0)), [can]);
+  return (
+    <main className="container">
+      <Breadcrumb items={[{ label: 'المواد', href: '#/' }, { label: 'نتائجي' }]} />
+      <ResultsTab subject={null} exams={exams} active />
+    </main>
   );
 }
 

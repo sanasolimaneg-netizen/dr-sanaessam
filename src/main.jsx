@@ -5,7 +5,7 @@ import * as cloud from './cloud.js';
 import { LoginPage, NoAccountScreen, BlockedScreen, MustChangeScreen } from './auth.jsx';
 import { UsersPage } from './users.jsx';
 import { makeCan } from './accounts.js';
-import { Home, SubjectPage } from './pages.jsx';
+import { Home, SubjectPage, ResultsPage } from './pages.jsx';
 import { ExamPage, ResultPage } from './exam.jsx';
 import { subjectMeta, uid } from './store.js';
 import { OWNER_UID } from './firebase-config.js';
@@ -22,7 +22,7 @@ function useHash() {
 }
 
 function Header() {
-  const { can } = React.useContext(AuthCtx);
+  const { can, logout } = React.useContext(AuthCtx);
   return (
     <>
     <header className="site-header">
@@ -37,7 +37,10 @@ function Header() {
     <nav className="subnav" aria-label="التنقل">
       <div className="container subnav-in">
         <a className="nav-link" href="#/"><Icon name="home" size={22} /> المواد</a>
+        <a className="nav-link" href="#/results"><Icon name="results" size={22} /> نتائجي</a>
         {can.owner && <a className="nav-link" href="#/users"><Icon name="user" size={22} /> المستخدمون</a>}
+        {can.owner && <a className="nav-link" href="#/users/new"><Icon name="plus" size={22} /> إضافة مستخدم</a>}
+        <button type="button" className="nav-link out" onClick={logout}><Icon name="logout" size={22} /> تسجيل الخروج</button>
       </div>
     </nav>
     </>
@@ -80,8 +83,11 @@ function App() {
   let page;
   let title = 'امتحان المذاكرة';
   if (r === 'users') {
-    page = can.owner ? <UsersPage /> : <NoAccess />;
+    page = can.owner ? <UsersPage openNew={arg === 'new'} /> : <NoAccess />;
     title = 'المستخدمون · امتحان المذاكرة';
+  } else if (r === 'results') {
+    page = <ResultsPage />;
+    title = 'نتائجي · امتحان المذاكرة';
   } else if (r === 'subject' && subjectMeta(arg) && !can.subject(arg)) {
     page = <NoAccess />;
   } else if (r === 'subject' && subjectMeta(arg)) {
