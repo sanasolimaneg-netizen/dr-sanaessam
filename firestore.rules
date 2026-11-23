@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ⚠️ غيّر النص ده لـ UID حساب المالك (Authentication ← Users ← User UID،
+    // أو هيظهرلك في التطبيق أول ما المالك يسجّل دخول).
+    function isOwner() {
+      return request.auth != null && request.auth.uid == 'OWNER_UID';
+    }
+    function signedIn() { return request.auth != null; }
+    // الحساب لازم يكون المالك أنشأه (accounts/{uid}) ومش موقوف
+    function isActive() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/accounts/$(request.auth.uid))
+        && get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.active == true;
+    }
+
+    // الحسابات والصلاحيات: المالك بس هو اللي ينشئ ويعدّل. المستخدم يقرا حسابه هو
+    // ويقدر بس يشيل علامة «لازم يغيّر كلمة السر» من حسابه.
+    match /accounts/{uid} {
+      allow get: if isOwner() || (signedIn() && request.auth.uid == uid);
+      allow list: if isOwner();
+      allow create, update, delete: if isOwner();
+      allow update: if signedIn() && request.auth.uid == uid && isActive()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChange']);
+    }
+
+    // بيانات كل مستخدم (الأسئلة والامتحانات والملف الشخصي): صاحبها بس، وبشرط إن حسابه مفعّل
+    match /users/{uid}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == uid && (isOwner() || isActive());
+    }
+
+    // أي مسار تاني ممنوع
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
