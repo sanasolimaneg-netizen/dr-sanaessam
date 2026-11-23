@@ -212,14 +212,14 @@ pre.fmt{background:var(--surface2);border:1px solid var(--line);border-radius:va
 .qhead{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}
 .qn{flex:none;min-width:36px;height:36px;border-radius:50%;background:color-mix(in srgb,var(--accent) 16%,var(--surface));color:var(--accent);display:grid;place-items:center;font-weight:800;font-size:15px}
 @media (prefers-color-scheme:dark){.qn{color:color-mix(in srgb,var(--accent) 60%,white)}}
-.qtext{font-weight:700;white-space:pre-wrap;flex:1;min-width:0;overflow-wrap:anywhere;font-size:17.5px}
+.qtext{font-weight:700;white-space:pre-wrap;flex:1;min-width:0;overflow-wrap:anywhere;font-size:17.5px;unicode-bidi:plaintext;text-align:right}
 .qhead .tag{flex:none;align-self:flex-start}
 .opts{display:flex;flex-direction:column;gap:8px}
 .opt{display:flex;gap:12px;align-items:flex-start;border:1.5px solid var(--line);border-radius:var(--radius-sm);padding:10px 14px;cursor:pointer;background:var(--surface2);transition:border-color .12s,background .12s}
 .opt:hover:not(.static){border-color:var(--brand)}
 .opt input{margin-top:6px}
 .opt .l{font-weight:800;color:var(--muted);min-width:20px}
-.opt .ot{flex:1;min-width:0;overflow-wrap:anywhere}
+.opt .ot{flex:1;min-width:0;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:right}
 .opt.sel{border-color:var(--brand);background:var(--brand-soft)}
 .opt:focus-within{outline:3px solid var(--brand);outline-offset:2px}
 .opt.static{cursor:default}
@@ -306,7 +306,7 @@ textarea.essay{min-height:140px}
 .qitem{display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-radius:8px;background:var(--surface2)}
 .qtype{flex:none;font-size:12.5px;font-weight:700;padding:1px 8px;border-radius:99px;background:var(--brand-soft);color:var(--brand)}
 .qtype.essay{background:var(--warn-soft);color:var(--warn)}
-.qtext{flex:1;min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.qitem .qtext{flex:1;min-width:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-weight:400;font-size:inherit;white-space:normal}
 .opt-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .opt-row input[type=text]{flex:1;min-width:0}
 .opt-letter{font-weight:700;width:1.4em;text-align:center}
