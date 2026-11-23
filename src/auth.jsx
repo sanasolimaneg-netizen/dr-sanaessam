@@ -138,8 +138,8 @@ export function NoAccountScreen({ user, onClaim, onLogout }) {
   return (
     <main className="login-wrap">
       <div className="card login">
-        <h2>حسابك لسه مش مفعّل</h2>
-        <p>الحسابات بينشئها المالك. اطلب منه ينشئلك حساب، وسجّل دخول بيه.</p>
+        <h2>حسابك مش مفعّل</h2>
+        <p>الحساب ده لسه ما اتعملش أو اتحذف. الحسابات بينشئها المالك، اطلب منه ينشئلك حساب.</p>
         <p className="muted small">لو انت المالك وده أول دخول، انسخ الـ UID ده وحطه في قواعد Firestore مكان <code>OWNER_UID</code>، وبعدها اضغط الزرار.</p>
         <div className="uid-box" dir="ltr">{user.uid}</div>
         {err && <p className="err-text" role="alert">{err}</p>}

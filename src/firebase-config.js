@@ -8,3 +8,6 @@ export const firebaseConfig = {
   messagingSenderId: '246362407095',
   appId: '1:246362407095:web:07ffa6f142fdf00826cd32',
 };
+
+/* UID حساب المالك: محتوى المالك (الدروس والامتحانات) بيظهر لكل المستخدمين. لازم يكون نفسه في firestore.rules */
+export const OWNER_UID = '6hlOBP4pJCckI2rWDDY3fYHQXpr1';

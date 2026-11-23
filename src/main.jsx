@@ -8,6 +8,7 @@ import { makeCan } from './accounts.js';
 import { Home, SubjectPage } from './pages.jsx';
 import { ExamPage, ResultPage } from './exam.jsx';
 import { subjectMeta, uid } from './store.js';
+import { OWNER_UID } from './firebase-config.js';
 import { ProfileButton } from './profile.jsx';
 
 function useHash() {
@@ -102,7 +103,7 @@ function App() {
       {r !== 'exam' && <Header />}
       {page}
       <footer className="site-footer">
-        <div className="container">بياناتك محفوظة في حسابك وبتظهر على أي جهاز تسجّل منه، ومحدش غيرك بيشوفها.</div>
+        <div className="container">نتايج امتحاناتك محفوظة في حسابك وبتظهر على أي جهاز تسجّل منه، ومحدش غيرك بيشوفها.</div>
       </footer>
       <Toasts items={toasts} />
     </ToastCtx.Provider>
@@ -128,15 +129,17 @@ function Root() {
     if (ready.current === user.uid) return;
     setSt({ phase: 'data', user, account: null, msg: '' });
     try {
-      const account = await cloud.getAccount(user.uid);
+      let account = await cloud.getAccount(user.uid);
+      /* المالك بيتفعّل تلقائي أول ما يدخل (القواعد بتسمح بده لـ UID المالك بس) */
+      if (!account && user.uid === OWNER_UID) account = await cloud.claimOwner(user);
       if (!account) { setSt({ phase: 'noaccount', user, account: null, msg: '' }); return; }
-      if (account.active === false) { setSt({ phase: 'blocked', user, account, msg: '' }); return; }
+      if (account.active === false && user.uid !== OWNER_UID) { setSt({ phase: 'blocked', user, account, msg: '' }); return; }
       await open(user, account);
     } catch (e) { setSt({ phase: 'error', user, account: null, msg: cloud.friendlyError(e) }); }
   }), [retry, open]);
 
   const logout = useCallback(() => { window.location.hash = '#/'; return cloud.logout(); }, []);
-  const can = React.useMemo(() => makeCan(st.account), [st.account]);
+  const can = React.useMemo(() => makeCan(st.account, !!st.user && st.user.uid === OWNER_UID), [st.account, st.user]);
 
   if (st.phase === 'out') return <LoginPage />;
   if (st.phase === 'noaccount') {

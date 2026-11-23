@@ -6,6 +6,7 @@ import {
   DEFAULT_OPTS, typeCounts, inRange, planCounts, planExam, fmtDate, hasPages, pageGroups, pageRows, loadExams, saveExams, histOf,
 } from './store.js';
 import { pageLabel, parsePageSearch, matchPage, inLesson } from './pagelogic.js';
+import * as cloud from './cloud.js';
 
 /* =========================================================
    الصفحة الرئيسية: اختيار المادة
@@ -22,12 +23,12 @@ export function Home() {
   return (
     <main className="container home">
       <section className="hero">
-        <span className="eyebrow">منصة مذاكرة شخصية</span>
+        <span className="eyebrow">منصة مذاكرة</span>
         <h1>ذاكر من أسئلتك، وامتحن نفسك بالطريقة اللي تريحك</h1>
         <p>اختار المادة، ضيف ملف الأسئلة وملف الإجابات، واحفظهم. بعدها اختار ملف أو أكتر وحدد الصفحات والعدد والنوع اللي انت عاوزه.</p>
         <ul className="points">
           <li><Icon name="layers" size={18} /> اعمل امتحان من أكتر من درس</li>
-          <li><Icon name="shield" size={18} /> بياناتك في حسابك ومحدش غيرك يشوفها</li>
+          <li><Icon name="shield" size={18} /> نتايج امتحاناتك خاصة بيك ومحدش غيرك يشوفها</li>
           <li><Icon name="device" size={18} /> شغال على الموبايل والكمبيوتر</li>
         </ul>
       </section>
@@ -73,7 +74,7 @@ export function SubjectPage({ subject, startExam }) {
   const sel = useMemo(() => (picked.length ? picked : selEntries(mine, mine.map(s => s.id))), [picked, mine]);
 
   const commit = next => {
-    if (saveLib(next)) { setLib(next); return true; }
+    if (saveLib(next)) { setLib(loadLib()); return true; }
     notify('المتصفح مش سامح بالحفظ، جرّب تفضي مساحة أو تغيّر إعدادات الخصوصية.', 'err');
     return false;
   };
@@ -87,7 +88,7 @@ export function SubjectPage({ subject, startExam }) {
 
   const defaultName = `امتحان ${meta.label} ${exams.length + 1}`;
   const commitExams = next => {
-    if (saveExams(next)) { setAllExams(next); return true; }
+    if (saveExams(next)) { setAllExams(loadExams()); return true; }
     notify('المتصفح مش سامح بحفظ الامتحان، جرّب تفضي مساحة.', 'err');
     return false;
   };
@@ -122,6 +123,7 @@ export function SubjectPage({ subject, startExam }) {
     { k: 'library', t: 'الدروس', icon: 'list', n: stats.pages + stats.legacy },
     { k: 'exam', t: 'إنشاء امتحان', icon: 'play', n: picked.length || null },
     { k: 'exams', t: 'الامتحانات', icon: 'exams', n: exams.length },
+    { k: 'results', t: 'نتائجي', icon: 'check' },
   ];
   /* المستخدم بيشوف الصفحات المسموحله بس (المالك بيحدد ده) */
   const allowed = TABS.filter(t => can.tab(t.k));
@@ -179,6 +181,10 @@ export function SubjectPage({ subject, startExam }) {
       </div>}
       {can.tab('exams') && <div className="tabpanel" id="panel-exams" role="tabpanel" aria-labelledby="tab-exams" hidden={tab !== 'exams'}>
         <ExamsList exams={exams} onStart={startSaved} onStartWrong={startWrong} onRename={renameExam} onDelete={deleteExam} goCreate={() => setTab('exam')} />
+      </div>}
+
+      {can.tab('results') && <div className="tabpanel" id="panel-results" role="tabpanel" aria-labelledby="tab-results" hidden={tab !== 'results'}>
+        <ResultsTab subject={subject} exams={exams} active={tab === 'results'} />
       </div>}
 
       {tab === 'library' && can.tab('exam') && picked.length > 0 && (
@@ -456,6 +462,8 @@ function QEditor({ page: p0, onClose, onSave }) {
 /* ---------- الدروس: إجمالي الصفحات وتحتها الدروس، وفتح الصفحات لإضافة أو حذف أسئلة ---------- */
 function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit, goExam, goAdd }) {
   const notify = useToast();
+  const { can } = useContext(AuthCtx);
+  const own = can.owner || can.tab('add'); /* بيعدّل في محتواه هو؛ محتوى المالك للقراءة بس */
   const bank = mine.find(s => s.bank);
   const legacy = mine.filter(s => !s.bank);
   const [q, setQ] = useState('');
@@ -574,11 +582,11 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
                       <li key={i} className={cx('qitem', x.type)}>
                         <span className={cx('qtype', x.type)}>{x.type === 'mcq' ? 'اختياري' : 'مقالي'}</span>
                         <span className="qtext">{x.q}</span>
-                        <button className="icon-btn danger" onClick={() => setDelQ(i)} aria-label="حذف السؤال"><Icon name="trash" size={16} /></button>
+                        {own && !x._sh && <button className="icon-btn danger" onClick={() => setDelQ(i)} aria-label="حذف السؤال"><Icon name="trash" size={16} /></button>}
                       </li>
                     ))}
                   </ul>
-                  <button className="btn ghost sm" onClick={() => setEditor({ page: g.page })}><Icon name="plus" size={16} /> إضافة سؤال</button>
+                  {own && <button className="btn ghost sm" onClick={() => setEditor({ page: g.page })}><Icon name="plus" size={16} /> إضافة سؤال</button>}
                 </div>
               )}
             </div>
@@ -601,7 +609,7 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
       <div className="card-head">
         <h2 id="lib-h"><Icon name="list" size={20} /> دروس {meta.label}</h2>
         <div className="row">
-          {bank && <button className="btn ghost sm" onClick={() => setEditor({ page: '' })}><Icon name="plus" size={16} /> سؤال</button>}
+          {own && bank && <button className="btn ghost sm" onClick={() => setEditor({ page: '' })}><Icon name="plus" size={16} /> سؤال</button>}
           {visibleIds.length > 0 && <button className="btn ghost sm" onClick={toggleAll}>{allSel ? 'إلغاء التحديد' : 'تحديد الكل'}</button>}
         </div>
       </div>
@@ -610,7 +618,7 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
         <div className="empty">
           <Icon name="file" size={34} />
           <p>مفيش دروس لسه.</p>
-          <button className="btn primary" onClick={goAdd}><Icon name="plus" size={16} /> ضيف أول ملف</button>
+          {own && <button className="btn primary" onClick={goAdd}><Icon name="plus" size={16} /> ضيف أول ملف</button>}
         </div>
       ) : (
         <>
@@ -632,15 +640,15 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
                       <span className="muted small">{groups.length} صفحة (من {Math.min(...bankPages)} إلى {Math.max(...bankPages)}) · {bank.qs.length} سؤال · {bc.mcq} اختياري · {bc.essay} مقالي</span>
                     </span>
                   </label>
-                  <button className="icon-btn danger" onClick={() => setDel(bank)} aria-label="حذف كل الصفحات" title="حذف كل الصفحات"><Icon name="trash" size={18} /></button>
+                  {own && !bank.shOnly && <button className="icon-btn danger" onClick={() => setDel(bank)} aria-label="حذف كل الصفحات" title="حذف كل الصفحات"><Icon name="trash" size={18} /></button>}
                 </div>
 
                 <div className="sec-head">
                   <b>الدروس</b>
-                  <button className="btn ghost sm" onClick={openLesson}><Icon name="plus" size={16} /> درس جديد</button>
+                  {own && <button className="btn ghost sm" onClick={openLesson}><Icon name="plus" size={16} /> درس جديد</button>}
                 </div>
                 {lessons.length === 0 ? (
-                  <p className="muted small pad">{spec.active ? 'مفيش دروس فيها الصفحات دي.' : 'لسه مفيش دروس. اضغط «درس جديد» وحدد من صفحة وإلى صفحة وسمّيه.'}</p>
+                  <p className="muted small pad">{spec.active ? 'مفيش دروس فيها الصفحات دي.' : own ? 'لسه مفيش دروس. اضغط «درس جديد» وحدد من صفحة وإلى صفحة وسمّيه.' : 'لسه مفيش دروس.'}</p>
                 ) : (
                   <ul className="lessons">
                     {lessons.map(l => {
@@ -660,8 +668,8 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
                               </span>
                             </label>
                             <button className="icon-btn" aria-expanded={lo} onClick={() => flip('l:' + l.id)} aria-label={'فتح صفحات ' + l.name} title="فتح الصفحات"><Icon name="back" size={16} className={cx('chev', lo && 'dn')} /></button>
-                            <button className="icon-btn" onClick={() => editLesson(l)} aria-label={'تعديل درس ' + l.name} title="تعديل الاسم والصفحات"><Icon name="edit" size={18} /></button>
-                            <button className="icon-btn danger" onClick={() => delLesson(l)} aria-label={'حذف درس ' + l.name}><Icon name="trash" size={18} /></button>
+                            {own && !l._sh && <button className="icon-btn" onClick={() => editLesson(l)} aria-label={'تعديل درس ' + l.name} title="تعديل الاسم والصفحات"><Icon name="edit" size={18} /></button>}
+                            {own && !l._sh && <button className="icon-btn danger" onClick={() => delLesson(l)} aria-label={'حذف درس ' + l.name}><Icon name="trash" size={18} /></button>}
                           </div>
                           {lo && renderPages('l' + l.id, l.from, l.to)}
                         </li>
@@ -695,7 +703,7 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
                         <span className="muted small">ملف بدون أرقام صفحات · {s.qs.length} سؤال · {c.mcq} اختياري · {c.essay} مقالي{s.created ? ' · ' + fmtDate(s.created) : ''}</span>
                       </span>
                     </label>
-                    <button className="icon-btn danger" onClick={() => setDel(s)} aria-label={'حذف ' + s.name}><Icon name="trash" size={18} /></button>
+                    {own && !s._sh && <button className="icon-btn danger" onClick={() => setDel(s)} aria-label={'حذف ' + s.name}><Icon name="trash" size={18} /></button>}
                   </div>
                 </li>
               );
@@ -748,7 +756,7 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
             <button className="btn ghost" onClick={() => setDel(null)} data-autofocus>إلغاء</button>
             <button className="btn danger-solid" onClick={doDelete}>احذف</button>
           </>}>
-          <p>{del.bank ? `هتحذف كل الصفحات (${del.qs.length} سؤال)` : `هتحذف «${del.name}» (${del.qs.length} سؤال)`}{(del.lessons || []).length ? ` ومعاها ${del.lessons.length} درس` : ''} نهائيًا من الجهاز.</p>
+          <p>{del.bank ? `هتحذف كل الصفحات اللي ضفتها (${del.qs.filter(q => !q._sh).length} سؤال)` : `هتحذف «${del.name}» (${del.qs.length} سؤال)`}{(del.lessons || []).filter(l => !l._sh).length ? ` ومعاها ${del.lessons.filter(l => !l._sh).length} درس` : ''} نهائيًا من حسابك. محتوى المالك مش هيتأثر.</p>
         </Modal>
       )}
     </section>
@@ -938,8 +946,108 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
   );
 }
 
+/* ---------- نتائجي: نتايج الامتحانات (والمالك يقدر يشوف نتايج أي مستخدم) ---------- */
+function ResultsTab({ subject, exams, active }) {
+  const { can } = useContext(AuthCtx);
+  const notify = useToast();
+  const [who, setWho] = useState('me');
+  const [users, setUsers] = useState(null);
+  const [other, setOther] = useState(null);
+  const [review, setReview] = useState(null);
+
+  useEffect(() => {
+    if (!can.owner || !active || users) return;
+    cloud.listAccounts().then(l => setUsers(l.filter(a => a.role !== 'owner'))).catch(e => { setUsers([]); notify(cloud.friendlyError(e), 'err'); });
+  }, [can.owner, active, users, notify]);
+
+  useEffect(() => {
+    if (who === 'me') { setOther(null); return undefined; }
+    let live = true;
+    setOther({ loading: true, items: [] });
+    cloud.getUserView(who).then(v => {
+      if (!live) return;
+      const base = exams.filter(e => !e._sh).map(e => ({ ...e, history: undefined, last: null, best: 0, attempts: 0 }));
+      const ids = new Set(base.map(e => e.id));
+      const items = [...base, ...v.exams.filter(e => !ids.has(e.id) && e.subject === subject)]
+        .map(e => (v.results[e.id] ? { ...e, ...v.results[e.id] } : e))
+        .sort((a, b) => (b.created || 0) - (a.created || 0));
+      setOther({ loading: false, items });
+    }).catch(e => { if (live) { setOther({ loading: false, items: [] }); notify(cloud.friendlyError(e), 'err'); } });
+    return () => { live = false; };
+  }, [who, subject]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const viewing = who === 'me' ? null : (users || []).find(u => u.uid === who);
+  const items = who === 'me' ? exams : (other ? other.items : []);
+  const solved = items.filter(e => histOf(e).length);
+  const lastOf = e => { const h = histOf(e); return h[h.length - 1]; };
+  const avg = solved.length ? Math.round(solved.reduce((t, e) => t + (lastOf(e).pct || 0), 0) / solved.length) : 0;
+  const best = solved.reduce((m, e) => Math.max(m, ...histOf(e).filter(h => h.kind === 'full').map(h => h.pct), 0), 0);
+
+  return (
+    <section className="exams-list" aria-labelledby="res-h">
+      <div className="card-head">
+        <h2 id="res-h"><Icon name="check" size={20} className="ic" /> {viewing ? 'نتايج ' + (viewing.name || viewing.identifier) : 'نتائجي'}</h2>
+        {can.owner && (
+          <div className="field" style={{ margin: 0 }}>
+            <label htmlFor="res-who" className="sr">عرض نتايج</label>
+            <select id="res-who" value={who} onChange={e => setWho(e.target.value)}>
+              <option value="me">نتايجي أنا</option>
+              {(users || []).map(u => <option key={u.uid} value={u.uid}>{u.name || u.identifier}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {other && other.loading && <p className="muted">جاري التحميل...</p>}
+      {!(other && other.loading) && items.length === 0 && (
+        <div className="card setup empty-setup"><p className="muted">مفيش امتحانات في المادة دي لسه.</p></div>
+      )}
+      {!(other && other.loading) && items.length > 0 && (
+        <div className="card">
+          <p><b>{solved.length}</b> امتحان اتحل من {items.length}
+            {solved.length > 0 && <> · متوسط آخر النتايج <b>{avg}%</b> · أعلى نتيجة <b>{best}%</b></>}</p>
+        </div>
+      )}
+      {!(other && other.loading) && items.map(ex => {
+        const hist = histOf(ex);
+        const last = hist[hist.length - 1] || {};
+        return (
+          <article key={ex.id} className="card exam-item">
+            <div className="ei-main">
+              <h3>{ex.name} {ex._sh && <span className="count">من المالك</span>}</h3>
+              <div className="muted small">{ex.qs ? ex.qs.length + ' سؤال · ' : ''}{hist.length ? `${hist.length} محاولة` : 'لسه ما اتحلش'}</div>
+              {hist.length > 0 && last.total > 0 && (
+                <div className={cx('ei-score', last.pct >= 50 ? 'ok' : 'bad')}>
+                  آخر نتيجة: <b>{last.right} / {last.total}</b> ({last.pct}%)
+                  {ex.best > 0 && ex.best > last.pct && last.kind === 'full' && <span className="muted small"> · أعلى نتيجة {ex.best}%</span>}
+                </div>
+              )}
+              {hist.length > 0 && (
+                <div className="ei-hist">
+                  <span className="muted small">المحاولات بالترتيب (دوس على أي محاولة تشوف أخطاءها):</span>
+                  <div className="hist-list">
+                    {hist.map((h, k) => (
+                      <button key={h.aid} className={cx('hist-chip', h.pct >= 50 ? 'ok' : 'bad')} onClick={() => setReview({ ex, h, n: k + 1 })}>
+                        <b>{k + 1}</b>{h.kind === 'wrong' ? ' · أخطاء' : ''} · {h.right}/{h.total} · {h.pct}%
+                        <span className="hist-w">{h.wrong.length ? h.wrong.length + ' خطأ' : 'من غير أخطاء'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </article>
+        );
+      })}
+      {review && <ReviewWrong ex={review.ex} h={review.h} n={review.n} onClose={() => setReview(null)} />}
+    </section>
+  );
+}
+
 /* ---------- الامتحانات المنشأة ---------- */
 function ExamsList({ exams, onStart, onStartWrong, onRename, onDelete, goCreate }) {
+  const { can } = useContext(AuthCtx);
+  const canMake = can.owner || can.tab('exam');
   const [renaming, setRenaming] = useState(null);
   const [nm, setNm] = useState('');
   const [del, setDel] = useState(null);
@@ -949,8 +1057,8 @@ function ExamsList({ exams, onStart, onStartWrong, onRename, onDelete, goCreate 
     return (
       <div className="card setup empty-setup">
         <h2>الامتحانات</h2>
-        <p className="muted">لسه ما عملتش أي امتحان في المادة دي. أنشئ امتحان وسمّيه وهيظهر هنا.</p>
-        <button className="btn primary" onClick={goCreate}><Icon name="plus" size={16} /> إنشاء امتحان</button>
+        <p className="muted">{canMake ? 'لسه مفيش امتحانات في المادة دي. أنشئ امتحان وسمّيه وهيظهر هنا.' : 'لسه مفيش امتحانات في المادة دي. هتظهر هنا أول ما المالك ينشئها.'}</p>
+        {canMake && <button className="btn primary" onClick={goCreate}><Icon name="plus" size={16} /> إنشاء امتحان</button>}
       </div>
     );
   }
@@ -964,7 +1072,7 @@ function ExamsList({ exams, onStart, onStartWrong, onRename, onDelete, goCreate 
     <section className="exams-list">
       <div className="card-head">
         <h2><Icon name="exams" size={20} className="ic" /> الامتحانات <span className="count">{exams.length}</span></h2>
-        <button className="btn sm" onClick={goCreate}><Icon name="plus" size={16} /> امتحان جديد</button>
+        {canMake && <button className="btn sm" onClick={goCreate}><Icon name="plus" size={16} /> امتحان جديد</button>}
       </div>
       {exams.map(ex => {
         const hist = histOf(ex);
@@ -973,10 +1081,10 @@ function ExamsList({ exams, onStart, onStartWrong, onRename, onDelete, goCreate 
         return (
         <article key={ex.id} className="card exam-item">
           <div className="ei-main">
-            <h3>{ex.name}</h3>
+            <h3>{ex.name} {ex._sh && <span className="count">من المالك</span>}</h3>
             <div className="muted small">
               {ex.qs.length} سؤال ({ex.mcq} اختياري{ex.essay ? ` + ${ex.essay} مقالي` : ''}) · اتعمل {fmtDate(ex.created)}
-              {hist.length ? ` · ${hist.length} محاولة` : ' · لسه ما اتحلش'}
+              {hist.length ? ` · ${hist.length} محاولة (نتايجك انت بس)` : ' · لسه ما حلتهوش'}
             </div>
             {hist.length > 0 && last.total > 0 && (
               <div className={cx('ei-score', last.pct >= 50 ? 'ok' : 'bad')}>
@@ -1008,8 +1116,8 @@ function ExamsList({ exams, onStart, onStartWrong, onRename, onDelete, goCreate 
                 <Icon name="shuffle" size={16} /> الأخطاء فقط <span className="count">{left}</span>
               </button>
             )}
-            <button className="icon-btn" aria-label={'تغيير اسم ' + ex.name} title="تغيير الاسم" onClick={() => { setRenaming(ex); setNm(ex.name); }}><Icon name="edit" size={18} /></button>
-            <button className="icon-btn danger" aria-label={'حذف ' + ex.name} title="حذف" onClick={() => setDel(ex)}><Icon name="trash" size={18} /></button>
+            {!ex._sh && <button className="icon-btn" aria-label={'تغيير اسم ' + ex.name} title="تغيير الاسم" onClick={() => { setRenaming(ex); setNm(ex.name); }}><Icon name="edit" size={18} /></button>}
+            {!ex._sh && <button className="icon-btn danger" aria-label={'حذف ' + ex.name} title="حذف" onClick={() => setDel(ex)}><Icon name="trash" size={18} /></button>}
           </div>
         </article>
         );

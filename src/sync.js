@@ -31,8 +31,16 @@ export function splitQs(qs) {
 const COLS = { lib: 'sets', exams: 'exams' };
 const byOrder = (a, b) => ((a.created || 0) - (b.created || 0)) || String(a.id).localeCompare(String(b.id));
 
-export function createSync(adapter, uid, { onError = () => {}, delay = 700, retryMs = 8000 } = {}) {
-  const cache = { lib: '[]', exams: '[]', profile: { name: '', photo: '' } };
+/* uid = المستخدم الحالي: بياناته الخاصة (الدروس والامتحانات اللي هو عملها، نتايجه، ملفه الشخصي).
+   sharedUid = المالك: دروسه وامتحاناته بتتقرا (قراءة بس) وبتظهر لكل المستخدمين. لو المستخدم هو المالك مفيش محتوى مشترك منفصل. */
+const RES_KEYS = ['history', 'last', 'best', 'attempts'];
+const hasRes = e => RES_KEYS.some(k => k in e);
+const stripRes = e => { const { history, last, best, attempts, ...rest } = e; return rest; };
+
+export function createSync(adapter, uid, { sharedUid = uid, onError = () => {}, delay = 700, retryMs = 8000 } = {}) {
+  const hasShared = sharedUid !== uid;
+  const cache = { lib: '[]', exams: '[]', sharedLib: '[]', sharedExams: '[]', profile: { name: '', photo: '' }, results: {} };
+  const resDirty = new Set();
   const synced = { sets: new Map(), exams: new Map() };
   const dirty = { lib: false, exams: false, profile: false };
   let timer = null;
@@ -41,22 +49,45 @@ export function createSync(adapter, uid, { onError = () => {}, delay = 700, retr
   let fails = 0;
 
   async function load() {
+    const rs = await adapter.listResults(uid);
+    cache.results = Object.fromEntries(rs.map(r => [r.id, r.data]));
     for (const [key, col] of Object.entries(COLS)) {
       const list = await adapter.listEntities(uid, col);
-      const ents = list.map(x => x.e).sort(byOrder);
+      const stripped = new Set();
+      /* نتايج قديمة كانت متخزنة جوه الامتحان نفسه: بنفصلها عشان النتايج تبقى خاصة بكل مستخدم */
+      const ents = list.map(x => {
+        const e = x.e;
+        if (col !== 'exams' || !hasRes(e)) return e;
+        stripped.add(e.id);
+        if (!cache.results[e.id]) { const { history, last, best, attempts } = e; cache.results[e.id] = { history, last, best, attempts }; resDirty.add(e.id); }
+        return stripRes(e);
+      }).sort(byOrder);
       cache[key] = JSON.stringify(ents);
       const ns = new Map(list.map(x => [x.e.id, x.n]));
       /* التوقيع بيتحسب من نسخة الكاش نفسها عشان ترتيب الحقول يفضل ثابت */
-      synced[col] = new Map(JSON.parse(cache[key]).map(e => [e.id, { sig: JSON.stringify(e), n: ns.get(e.id) || 0 }]));
+      synced[col] = new Map(JSON.parse(cache[key]).map(e => [e.id, { sig: stripped.has(e.id) ? '' : JSON.stringify(e), n: ns.get(e.id) || 0 }]));
+      if (stripped.size) dirty[key] = true;
+    }
+    if (hasShared) {
+      /* محتوى المالك: قراءة بس */
+      const sl = await adapter.listEntities(sharedUid, 'sets');
+      cache.sharedLib = JSON.stringify(sl.map(x => x.e).sort(byOrder));
+      const se = await adapter.listEntities(sharedUid, 'exams');
+      cache.sharedExams = JSON.stringify(se.map(x => stripRes(x.e)).sort(byOrder));
     }
     const p = await adapter.getProfile(uid);
     cache.profile = { name: (p && p.name) || '', photo: (p && p.photo) || '' };
+    if (dirty.lib || dirty.exams || resDirty.size) schedule();
   }
 
   async function pushAll() {
     if (dirty.profile) {
       dirty.profile = false;
       try { await adapter.setProfile(uid, cache.profile); } catch (e) { dirty.profile = true; throw e; }
+    }
+    for (const id of [...resDirty]) {
+      resDirty.delete(id);
+      try { await adapter.setResult(uid, id, cache.results[id]); } catch (e) { resDirty.add(id); throw e; }
     }
     for (const [key, col] of Object.entries(COLS)) {
       if (!dirty[key]) continue;
@@ -103,10 +134,10 @@ export function createSync(adapter, uid, { onError = () => {}, delay = 700, retr
     return running;
   }
 
-  const pending = () => dirty.lib || dirty.exams || dirty.profile || !!running || !!timer;
+  const pending = () => dirty.lib || dirty.exams || dirty.profile || resDirty.size > 0 || !!running || !!timer;
   /* بيرفع أي تغييرات لسه ماترفعتش (قبل تسجيل الخروج مثلًا) */
   async function flush() {
-    for (let i = 0; i < 3 && (dirty.lib || dirty.exams || dirty.profile || running); i++) await run();
+    for (let i = 0; i < 3 && (dirty.lib || dirty.exams || dirty.profile || resDirty.size || running); i++) await run();
   }
   const mark = key => { dirty[key] = true; schedule(); };
 
@@ -114,6 +145,9 @@ export function createSync(adapter, uid, { onError = () => {}, delay = 700, retr
     load, flush, pending,
     getLib: () => cache.lib, setLib: s => { cache.lib = s; mark('lib'); },
     getExams: () => cache.exams, setExams: s => { cache.exams = s; mark('exams'); },
+    getSharedLib: () => cache.sharedLib, getSharedExams: () => cache.sharedExams,
     getProfile: () => cache.profile, setProfile: p => { cache.profile = p; mark('profile'); },
+    getResults: () => cache.results,
+    setResult: (id, r) => { cache.results = { ...cache.results, [id]: r }; resDirty.add(id); schedule(); },
   };
 }

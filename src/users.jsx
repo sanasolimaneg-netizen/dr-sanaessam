@@ -26,7 +26,7 @@ function PermsEditor({ value, onChange }) {
         </div>
       </fieldset>
       <fieldset>
-        <legend>الصفحات المسموحة جوه المادة <button type="button" className="link small" onClick={() => all('tabs', tabs)}>{value.tabs.length === tabs.length ? 'إلغاء الكل' : 'تحديد الكل'}</button></legend>
+        <legend>الصفحات المسموحة جوه المادة (إضافة الملفات وإنشاء الامتحانات بتبقى خاصة بالمستخدم نفسه) <button type="button" className="link small" onClick={() => all('tabs', tabs)}>{value.tabs.length === tabs.length ? 'إلغاء الكل' : 'تحديد الكل'}</button></legend>
         <div className="checks">
           {TAB_DEFS.map(t => (
             <label key={t.k} className="check"><input type="checkbox" checked={value.tabs.includes(t.k)} onChange={() => toggle('tabs', t.k)} /> {t.t}</label>
@@ -44,7 +44,7 @@ function NewUserModal({ onClose, onCreated }) {
   const [pw, setPw] = useState(() => genPassword());
   const [show, setShow] = useState(true);
   const [must, setMust] = useState(true);
-  const [perms, setPerms] = useState(allPerms());
+  const [perms, setPerms] = useState(() => ({ ...allPerms(), tabs: ['library', 'exams'] }));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(null);
@@ -137,6 +137,7 @@ export function UsersPage() {
   const [err, setErr] = useState('');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const load = async () => {
     setErr('');
@@ -148,6 +149,12 @@ export function UsersPage() {
   const patch = acc => setList(l => l.map(x => (x.uid === acc.uid ? acc : x)));
   const toggle = async acc => {
     try { await cloud.updateAccount(acc.uid, { active: !acc.active }); patch({ ...acc, active: !acc.active }); notify(acc.active ? 'اتوقف الحساب' : 'اتفعّل الحساب'); } catch (e) { notify(cloud.friendlyError(e), 'err'); }
+  };
+
+  const remove = async () => {
+    const acc = deleting;
+    try { await cloud.deleteAccount(acc.uid); setList(l => l.filter(x => x.uid !== acc.uid)); notify('اتحذف المستخدم'); } catch (e) { notify(cloud.friendlyError(e), 'err'); }
+    setDeleting(null);
   };
 
   return (
@@ -171,6 +178,7 @@ export function UsersPage() {
               <div className="ei-actions">
                 <button className="btn" onClick={() => setEditing(a)}><Icon name="edit" size={16} /> الصلاحيات</button>
                 <button className={cx('btn', a.active !== false && 'danger-ghost')} onClick={() => toggle(a)}>{a.active === false ? 'تفعيل' : 'إيقاف'}</button>
+                <button className="icon-btn danger" aria-label={'حذف ' + (a.name || a.identifier)} title="حذف المستخدم" onClick={() => setDeleting(a)}><Icon name="trash" size={18} /></button>
               </div>
             )}
           </article>
@@ -178,6 +186,16 @@ export function UsersPage() {
         {list && list.length === 0 && !err && <p className="muted">لسه مفيش مستخدمين.</p>}
       </div>
       {adding && <NewUserModal onClose={() => setAdding(false)} onCreated={acc => setList(l => [...(l || []), acc])} />}
+      {deleting && (
+        <Modal title="حذف المستخدم" onClose={() => setDeleting(null)}
+          footer={<>
+            <button className="btn ghost" onClick={() => setDeleting(null)} data-autofocus>إلغاء</button>
+            <button className="btn danger-solid" onClick={remove}>احذف</button>
+          </>}>
+          <p>هتحذف «<b>{deleting.name || deleting.identifier}</b>» ونتايج امتحاناته وبياناته نهائيًا، ومش هيقدر يدخل التطبيق تاني.</p>
+          <p className="muted small">لو عاوز تعيد استخدام نفس اسم المستخدم، امسحه كمان من Firebase ← Authentication ← Users.</p>
+        </Modal>
+      )}
       {editing && <EditUserModal acc={editing} onClose={() => setEditing(null)} onSaved={acc => { patch(acc); setEditing(null); notify('اتحفظت الصلاحيات'); }} />}
     </main>
   );

@@ -7,9 +7,9 @@ import {
 } from 'firebase/auth';
 import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch,
+  collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch,
 } from 'firebase/firestore';
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, OWNER_UID } from './firebase-config.js';
 import { createSync } from './sync.js';
 import { attachBackend, detachBackend } from './store.js';
 import { toEmail, normId } from './accounts.js';
@@ -59,6 +59,12 @@ const adapter = {
     return s.exists() ? s.data() : null;
   },
   async setProfile(uid, p) { await setDoc(doc(db, 'users', uid, 'meta', 'profile'), p); },
+  /* نتايج الامتحانات: مستند لكل امتحان تحت users/{uid}/results، وخاصة بصاحبها */
+  async listResults(uid) {
+    const snap = await getDocs(collection(db, 'users', uid, 'results'));
+    return snap.docs.map(d => ({ id: d.id, data: d.data() }));
+  },
+  async setResult(uid, id, r) { await setDoc(doc(db, 'users', uid, 'results', id), JSON.parse(JSON.stringify(r))); },
 };
 
 let current = null;
@@ -73,7 +79,8 @@ export const watchAuth = cb => onAuthStateChanged(auth, cb);
 
 /* بعد تسجيل الدخول: بنحمّل بيانات المستخدم من Firestore ونربطها بالتطبيق */
 export async function attach(user, account) {
-  const sync = createSync(adapter, user.uid, { onError: e => errHandler(e) });
+  /* الدروس والامتحانات بتتقرا من المالك (مشتركة)، والنتايج والملف الشخصي من حساب المستخدم نفسه */
+  const sync = createSync(adapter, user.uid, { sharedUid: OWNER_UID, onError: e => errHandler(e) });
   await sync.load();
   const nm = (account && account.name) || user.displayName;
   if (!sync.getProfile().name && nm) sync.setProfile({ name: nm, photo: sync.getProfile().photo });
@@ -126,7 +133,32 @@ export async function createAccount({ identifier, name, password, perms, mustCha
   await setDoc(doc(db, 'accounts', uid), acc);
   return { uid, ...acc };
 }
+/* للمالك: نتايج مستخدم معيّن وامتحاناته الخاصة (القواعد بتسمح للمالك بالقراءة) */
+export async function getUserView(uid) {
+  const [rs, ex] = await Promise.all([adapter.listResults(uid), adapter.listEntities(uid, 'exams')]);
+  return { results: Object.fromEntries(rs.map(r => [r.id, r.data])), exams: ex.map(x => x.e) };
+}
 export const updateAccount = (uid, patch) => updateDoc(doc(db, 'accounts', uid), patch);
+
+/* حذف مستخدم (للمالك): بيمسح بياناته ونتايجه وحسابه من التطبيق. سجل الدخول نفسه (Authentication) بيتمسح يدويًا من Firebase Console
+   لأن المتصفح مايقدرش يحذف مستخدم تاني. من غير مستند الحساب مايقدرش يقرا ولا يكتب أي حاجة. */
+export async function deleteAccount(uid) {
+  if (uid === OWNER_UID || uid === auth.currentUser.uid) throw { code: 'app/cannot-delete-owner' };
+  const refs = [];
+  for (const col of ['results', 'meta']) (await getDocs(collection(db, 'users', uid, col))).docs.forEach(d => refs.push(d.ref));
+  for (const col of ['sets', 'exams']) {
+    for (const d of (await getDocs(collection(db, 'users', uid, col))).docs) {
+      (await getDocs(collection(db, 'users', uid, col, d.id, 'chunks'))).docs.forEach(c => refs.push(c.ref));
+      refs.push(d.ref);
+    }
+  }
+  for (let i = 0; i < refs.length; i += 400) {
+    const b = writeBatch(db);
+    refs.slice(i, i + 400).forEach(r => b.delete(r));
+    await b.commit();
+  }
+  await deleteDoc(doc(db, 'accounts', uid));
+}
 export const clearMustChange = uid => updateDoc(doc(db, 'accounts', uid), { mustChange: false });
 
 /* تغيير كلمة السر: لازم كلمة السر الحالية (إعادة تحقق) */
@@ -153,6 +185,7 @@ const MSG = {
   'auth/user-disabled': 'الحساب ده موقوف.',
   'app/no-password': 'حسابك مسجّل بجوجل ومالوش كلمة سر.',
   'app/user-exists': 'اسم المستخدم ده موجود قبل كده.',
+  'app/cannot-delete-owner': 'مينفعش تحذف حساب المالك.',
   'auth/requires-recent-login': 'سجّل خروج وادخل تاني وجرّب.',
   'auth/popup-blocked': 'المتصفح منع نافذة جوجل، اسمح بالنوافذ المنبثقة وجرّب تاني.',
   'auth/unauthorized-domain': 'دومين الموقع مش مضاف في Firebase (Authentication ← Settings ← Authorized domains).',

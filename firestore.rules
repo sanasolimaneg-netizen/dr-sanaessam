@@ -2,11 +2,9 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ⚠️ غيّر النص ده لـ UID حساب المالك (Authentication ← Users ← User UID،
-    // أو هيظهرلك في التطبيق أول ما المالك يسجّل دخول).
-    function isOwner() {
-      return request.auth != null && request.auth.uid == 'OWNER_UID';
-    }
+    // UID حساب المالك (لازم يكون نفسه OWNER_UID في src/firebase-config.js)
+    function ownerUid() { return '6hlOBP4pJCckI2rWDDY3fYHQXpr1'; }
+    function isOwner() { return request.auth != null && request.auth.uid == ownerUid(); }
     function signedIn() { return request.auth != null; }
     // الحساب لازم يكون المالك أنشأه (accounts/{uid}) ومش موقوف
     function isActive() {
@@ -15,7 +13,7 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.active == true;
     }
 
-    // الحسابات والصلاحيات: المالك بس هو اللي ينشئ ويعدّل. المستخدم يقرا حسابه هو
+    // الحسابات والصلاحيات: المالك بس هو اللي ينشئ ويعدّل ويحذف. المستخدم يقرا حسابه هو
     // ويقدر بس يشيل علامة «لازم يغيّر كلمة السر» من حسابه.
     match /accounts/{uid} {
       allow get: if isOwner() || (signedIn() && request.auth.uid == uid);
@@ -25,9 +23,34 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChange']);
     }
 
-    // بيانات كل مستخدم (الأسئلة والامتحانات والملف الشخصي): صاحبها بس، وبشرط إن حسابه مفعّل
+    // المالك: صلاحية كاملة على كل البيانات (محتواه المشترك + حذف بيانات أي مستخدم)
     match /users/{uid}/{document=**} {
-      allow read, write: if signedIn() && request.auth.uid == uid && (isOwner() || isActive());
+      allow read, write: if isOwner();
+    }
+
+    // هل المستخدم عنده صفحة من الصفحات دي (المالك هو اللي بيحددها في accounts/{uid}.perms.tabs)
+    function hasTab(tabs) {
+      return get(/databases/$(database)/documents/accounts/$(request.auth.uid)).data.perms.tabs.hasAny(tabs);
+    }
+    function mine(uid) { return signedIn() && request.auth.uid == uid && isActive(); }
+
+    // الدروس والامتحانات: أي مستخدم مفعّل يقرا اللي عملها المالك + اللي عملها هو بنفسه.
+    // الكتابة في بياناته هو بس (ومحتوى المالك مابيكتبش فيه غير المالك) وحسب الصفحات المسموحة له.
+    match /users/{uid}/sets/{document=**} {
+      allow read: if (uid == ownerUid() && isActive()) || mine(uid);
+      allow write: if mine(uid) && hasTab(['add', 'library']);
+    }
+    match /users/{uid}/exams/{document=**} {
+      allow read: if (uid == ownerUid() && isActive()) || mine(uid);
+      allow write: if mine(uid) && hasTab(['exam', 'exams']);
+    }
+
+    // خاص بكل مستخدم: نتايج امتحاناته وملفه الشخصي. صاحبه بس (وحسابه مفعّل)
+    match /users/{uid}/results/{id} {
+      allow read, write: if signedIn() && request.auth.uid == uid && isActive();
+    }
+    match /users/{uid}/meta/{id} {
+      allow read, write: if signedIn() && request.auth.uid == uid && isActive();
     }
 
     // أي مسار تاني ممنوع

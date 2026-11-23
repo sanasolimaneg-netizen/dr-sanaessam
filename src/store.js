@@ -19,13 +19,43 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 
 /* مصدر البيانات: بعد تسجيل الدخول بنربط نسخة السحابة (cloud.js → sync.js) هنا. الواجهة بتفضل متزامنة وسريعة. */
 let backend = null;
-const EMPTY = { getLib: () => '[]', setLib() {}, getExams: () => '[]', setExams() {}, getProfile: () => ({ name: '', photo: '' }), setProfile() {} };
+const EMPTY = { getLib: () => '[]', setLib() {}, getExams: () => '[]', setExams() {}, getSharedLib: () => '[]', getSharedExams: () => '[]', getProfile: () => ({ name: '', photo: '' }), setProfile() {}, getResults: () => ({}), setResult() {} };
 export const attachBackend = b => { backend = b; };
 export const detachBackend = () => { backend = null; };
 const bk = () => backend || EMPTY;
 
+/* محتوى المالك (المشترك) بيتدمج مع محتوى المستخدم الخاص وقت العرض بس، وعناصره متعلّم عليها _sh ومابتتخزنش في حساب المستخدم */
 export function saveLib(l) {
-  try { bk().setLib(JSON.stringify(l)); return true; } catch { return false; }
+  try {
+    const out = [];
+    l.forEach(s => {
+      if (s._sh) return;
+      if (!s.bank) { out.push(s); return; }
+      const qs = s.qs.filter(q => !q._sh);
+      const lessons = (s.lessons || []).filter(x => !x._sh);
+      const { shOnly, ...rest } = s;
+      if (shOnly && !qs.length && !lessons.length) return;
+      out.push({ ...rest, qs, lessons });
+    });
+    bk().setLib(JSON.stringify(out));
+    return true;
+  } catch { return false; }
+}
+function withShared(own) {
+  let sh = [];
+  try { sh = JSON.parse(bk().getSharedLib() || '[]'); } catch { sh = []; }
+  if (!sh.length) return own;
+  const out = own.slice();
+  sh.forEach(s => {
+    if (!s.bank) { out.push({ ...s, _sh: 1 }); return; }
+    const k = subjOf(s);
+    const sq = (s.qs || []).map(q => ({ ...q, _sh: 1 }));
+    const sl = (s.lessons || []).map(x => ({ ...x, _sh: 1 }));
+    const i = out.findIndex(x => x.bank && subjOf(x) === k);
+    if (i < 0) out.push({ ...s, qs: sq, lessons: sl, shOnly: true });
+    else out[i] = { ...out[i], qs: sortQs([...sq, ...out[i].qs]), lessons: [...sl, ...(out[i].lessons || [])] };
+  });
+  return out;
 }
 export function loadLib() {
   try {
@@ -35,7 +65,7 @@ export function loadLib() {
     const m = migrate(l);
     if (m.changed) { l = m.lib; changed = true; }
     if (changed) saveLib(l);
-    return l;
+    return withShared(l);
   } catch { return []; }
 }
 export const subjOf = s => (SUBJECTS.some(x => x.key === s.subject) ? s.subject : 'none');
@@ -296,11 +326,22 @@ export function planExam(qs, o) {
 export const fmtDate = ts => (ts ? new Date(ts).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
 /* ---------- الامتحانات المنشأة (بتتحفظ في حساب المستخدم) ---------- */
+/* امتحانات المالك بتظهر لكل المستخدمين (علامتها _sh) ومعاها امتحانات المستخدم الخاصة. النتايج محفوظة لكل مستخدم لوحده وبتتدمج هنا وقت القراءة بس */
 export function loadExams() {
-  try { const l = JSON.parse(bk().getExams() || '[]'); return Array.isArray(l) ? l : []; } catch { return []; }
+  try {
+    const own = JSON.parse(bk().getExams() || '[]');
+    const sh = JSON.parse(bk().getSharedExams() || '[]');
+    const l = [...(Array.isArray(sh) ? sh : []).map(e => ({ ...e, _sh: true })), ...(Array.isArray(own) ? own : [])];
+    const rs = bk().getResults() || {};
+    return l.map(e => (rs[e.id] ? { ...e, ...rs[e.id] } : { ...e, history: undefined, last: null, best: 0, attempts: 0 }));
+  } catch { return []; }
 }
 export function saveExams(l) {
-  try { bk().setExams(JSON.stringify(l)); return true; } catch { return false; }
+  try {
+    /* النتايج ماتتخزنش جوه الامتحان المشترك */
+    bk().setExams(JSON.stringify(l.filter(e => !e._sh).map(({ history, last, best, attempts, ...e }) => ({ ...e, qs: (e.qs || []).map(({ _sh, ...q }) => q) }))));
+    return true;
+  } catch { return false; }
 }
 /* سجل المحاولات: كل محاولة = {aid, at, kind:'full'|'wrong', pct, right, total, essays, wrong:[{i, u}]}
    i = رقم السؤال في الامتحان المحفوظ، u = اختيارك وقتها. (الامتحانات القديمة اللي ليها last بس بتتحوّل لمحاولة واحدة) */
@@ -315,15 +356,12 @@ export function histOf(ex) {
 /* بيسجل (أو بيحدّث) محاولة على الامتحان المحفوظ. الأخطاء المتبقية = أخطاء آخر محاولة */
 export function recordResult(id, entry) {
   if (!id) return;
-  const l = loadExams();
-  const i = l.findIndex(e => e.id === id);
-  if (i < 0) return;
-  const prev = l[i];
+  const prev = loadExams().find(e => e.id === id);
+  if (!prev) return;
   const hist = histOf(prev).filter(h => h.aid !== entry.aid);
   hist.push(entry);
   const full = hist.filter(h => h.kind === 'full');
-  l[i] = { ...prev, history: hist, last: entry, best: full.length ? Math.max(...full.map(h => h.pct)) : 0, attempts: hist.length };
-  saveExams(l);
+  bk().setResult(id, { history: hist, last: entry, best: full.length ? Math.max(...full.map(h => h.pct)) : 0, attempts: hist.length });
 }
 
 /* ---------- ملف المستخدم (الاسم والصورة) ---------- */

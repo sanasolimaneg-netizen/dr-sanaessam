@@ -2,6 +2,7 @@
 import { SUBJECTS } from './store.js';
 
 /* صفحات المادة (التبويبات) اللي المالك بيتحكم فيها */
+/* المالك بيحدد لكل مستخدم الصفحات المسموحة. اللي المستخدم يضيفه وينشئه بيبقى خاص بيه بس، ومحتوى المالك بيظهرله هو والباقي */
 export const TAB_DEFS = [
   { k: 'add', t: 'إضافة ملف' },
   { k: 'library', t: 'الدروس' },
@@ -29,10 +30,11 @@ export function genPassword(len = 8) {
 }
 
 /* account: {role:'owner'|'user', active, perms:{subjects,tabs}} — المالك ليه كل حاجة */
-export function makeCan(account) {
-  const owner = !!account && account.role === 'owner';
+export function makeCan(account, isOwnerUid = false) {
+  const owner = isOwnerUid || (!!account && account.role === 'owner');
   const subj = new Set(owner ? [...SUBJECTS.map(s => s.key), 'none'] : (account && account.perms && account.perms.subjects) || []);
-  const tabs = new Set(owner ? TAB_DEFS.map(t => t.k) : (account && account.perms && account.perms.tabs) || []);
+  /* «نتائجي» متاحة لكل مستخدم لأنها نتايجه هو بس */
+  const tabs = new Set([...(owner ? TAB_DEFS.map(t => t.k) : (account && account.perms && account.perms.tabs) || []), 'results']);
   return { owner, subject: k => subj.has(k), tab: k => tabs.has(k) };
 }
 

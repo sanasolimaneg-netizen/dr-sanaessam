@@ -448,3 +448,4 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
 .btn.danger-ghost{color:var(--bad);border-color:var(--bad)}
 .h1s{font-size:26px;margin:0}
 .users-page .card-head{margin-bottom:14px}
+.field select{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:180px}
