@@ -39,7 +39,6 @@ function Header() {
         <a className="nav-link" href="#/"><Icon name="home" size={22} /> المواد</a>
         <a className="nav-link" href="#/results"><Icon name="results" size={22} /> نتائجي</a>
         {can.owner && <a className="nav-link" href="#/users"><Icon name="user" size={22} /> المستخدمون</a>}
-        {can.owner && <a className="nav-link" href="#/users/new"><Icon name="plus" size={22} /> إضافة مستخدم</a>}
         <button type="button" className="nav-link out" onClick={logout}><Icon name="logout" size={22} /> تسجيل الخروج</button>
       </div>
     </nav>

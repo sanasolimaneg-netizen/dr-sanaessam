@@ -23,7 +23,6 @@ export function Home() {
   return (
     <main className="container home">
       <section className="hero">
-        <span className="eyebrow">منصة مذاكرة</span>
         <h1>ذاكر من أسئلتك، وامتحن نفسك بالطريقة اللي تريحك</h1>
         <p>اختار المادة، ضيف ملف الأسئلة وملف الإجابات، واحفظهم. بعدها اختار ملف أو أكتر وحدد الصفحات والعدد والنوع اللي انت عاوزه.</p>
         <ul className="points">
@@ -35,14 +34,6 @@ export function Home() {
 
       <h2 className="section-title">اختار المادة</h2>
       <div className="subjects">
-        <a className="subject-card" href="#/results" style={{ '--accent': '#0d9488' }}>
-          <span className="badge"><Icon name="results" size={28} /></span>
-          <span className="sc-body">
-            <b>نتائجي</b>
-            <span className="sc-meta">نتايج امتحانات كل المواد</span>
-          </span>
-          <Icon name="back" size={20} className="sc-arrow" />
-        </a>
         {subs.map(s => {
           const st = stat(s.key);
           return (
@@ -56,6 +47,28 @@ export function Home() {
             </a>
           );
         })}
+      </div>
+
+      <h2 className="section-title">{can.owner ? 'المتابعة والإدارة' : 'المتابعة'}</h2>
+      <div className="subjects tools">
+        <a className="subject-card tool" href="#/results" style={{ '--accent': '#0d9488' }}>
+          <span className="badge"><Icon name="results" size={28} /></span>
+          <span className="sc-body">
+            <b>نتائجي</b>
+            <span className="sc-meta">نتايج امتحانات كل المواد</span>
+          </span>
+          <Icon name="back" size={20} className="sc-arrow" />
+        </a>
+        {can.owner && (
+          <a className="subject-card tool" href="#/users" style={{ '--accent': '#7c3aed' }}>
+            <span className="badge"><Icon name="user" size={28} /></span>
+            <span className="sc-body">
+              <b>المستخدمون</b>
+              <span className="sc-meta">الحسابات والصلاحيات ونتايجهم</span>
+            </span>
+            <Icon name="back" size={20} className="sc-arrow" />
+          </a>
+        )}
       </div>
     </main>
   );
