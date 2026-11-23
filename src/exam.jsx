@@ -47,7 +47,7 @@ function NavGrid({ qs, onPick }) {
   );
 }
 
-export function ExamPage({ exam, setExam, go }) {
+export function ExamPage({ exam, setExam, go, onExit }) {
   const { qs } = exam;
   const meta = subjectMeta(exam.subject);
   const n = qs.filter(answered).length;
@@ -59,11 +59,10 @@ export function ExamPage({ exam, setExam, go }) {
   }, [setExam]);
 
   useEffect(() => {
-    if (!n) return undefined;
     const h = e => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', h);
     return () => window.removeEventListener('beforeunload', h);
-  }, [n > 0]);
+  }, []);
 
   const finish = () => (left ? setModal('finish') : go('result'));
 
@@ -116,7 +115,7 @@ export function ExamPage({ exam, setExam, go }) {
         <Modal title="الخروج من الامتحان" onClose={() => setModal(null)}
           footer={<>
             <button className="btn ghost" onClick={() => setModal(null)} data-autofocus>فضل في الامتحان</button>
-            <button className="btn danger-solid" onClick={() => go('subject/' + exam.subject)}>اخرج</button>
+            <button className="btn danger-solid" onClick={() => onExit(exam.subject)}>اخرج</button>
           </>}>
           <p>لو خرجت إجاباتك هتضيع.</p>
         </Modal>

@@ -58,12 +58,47 @@ function NoAccess() {
   );
 }
 
+/* حفظ الامتحان الجاري في الجهاز عشان تحديث الصفحة أو قفل المتصفح ما يضيّعش الإجابات (لكل مستخدم لوحده) */
+const EXAM_KEY = uid0 => 'exam-active:' + (uid0 || 'anon');
+const EXAM_TTL = 48 * 3600 * 1000;
+function loadActive(uid0) {
+  try {
+    const raw = localStorage.getItem(EXAM_KEY(uid0));
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || !d.exam || !Array.isArray(d.exam.qs) || Date.now() - (d.at || 0) > EXAM_TTL) { localStorage.removeItem(EXAM_KEY(uid0)); return null; }
+    return d.exam;
+  } catch { return null; }
+}
+function saveActive(uid0, exam) {
+  try {
+    if (exam) localStorage.setItem(EXAM_KEY(uid0), JSON.stringify({ at: Date.now(), exam }));
+    else localStorage.removeItem(EXAM_KEY(uid0));
+  } catch { /* مساحة التخزين ممتلئة أو ممنوعة */ }
+}
+
 function App() {
   const hash = useHash();
   const [r, arg] = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  const [exam, setExam] = useState(null);
+  const { can, user } = React.useContext(AuthCtx);
+  const uid0 = user && user.uid;
+  const [exam, setExam] = useState(() => loadActive(uid0));
   const [toasts, setToasts] = useState([]);
-  const { can } = React.useContext(AuthCtx);
+  const examRef = React.useRef(exam);
+  examRef.current = exam;
+
+  /* حفظ تلقائي بعد نص ثانية من آخر تغيير، وحفظ فوري لما الصفحة تتخفى أو تتقفل */
+  useEffect(() => {
+    const t = setTimeout(() => saveActive(uid0, exam), 400);
+    return () => clearTimeout(t);
+  }, [exam, uid0]);
+  useEffect(() => {
+    const flush = () => saveActive(uid0, examRef.current);
+    const vis = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', vis);
+    return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', vis); };
+  }, [uid0]);
 
   const notify = useCallback((text, kind = 'ok') => {
     const id = uid();
@@ -79,9 +114,23 @@ function App() {
     const ord = qs.map((q, k) => k).sort((x, y) => ((qs[x].type === 'mcq' ? 0 : 1) - (qs[y].type === 'mcq' ? 0 : 1)) || x - y);
     const sorted = ord.map(k => qs[k]);
     const idxs = (extra && extra.idxs) || id ? ord.map(k => base[k]) : null;
-    setExam({ qs: sorted, name, subject, id, kind: 'full', ...extra, idxs, aid: uid() });
+    setExam({ qs: sorted, name, subject, id, kind: 'full', ...extra, idxs, aid: uid(), active: true });
     go('exam');
   }, [go]);
+
+  /* الخروج من الامتحان بزر «خروج» وتأكيده بس: بيمسح الامتحان وبعدين يرجع للمادة */
+  const exitExam = useCallback(subj => { setExam(null); saveActive(uid0, null); go('subject/' + subj); }, [go, uid0]);
+
+  /* الامتحان الجاري بيفضل مفتوح: أي محاولة للخروج (رجوع المتصفح، تغيير الرابط، فتح التطبيق من أول) بترجعك للامتحان */
+  useEffect(() => {
+    if (!exam) return;
+    if (r === 'exam' && !exam.active) setExam(e => ({ ...e, active: true }));
+    else if (r === 'result' && exam.active) setExam(e => ({ ...e, active: false }));
+    else if (r !== 'exam' && r !== 'result') {
+      if (exam.active) window.location.replace('#/exam');
+      else { setExam(null); saveActive(uid0, null); }
+    }
+  }, [r, exam, uid0]);
 
   const needsExam = (r === 'exam' || r === 'result') && !exam;
   useEffect(() => { if (needsExam) window.location.replace('#/'); }, [needsExam]);
@@ -101,7 +150,7 @@ function App() {
     page = <SubjectPage key={arg} subject={arg} startExam={startExam} />;
     title = subjectMeta(arg).label + ' · امتحان المذاكرة';
   } else if (r === 'exam' && exam) {
-    page = <ExamPage exam={exam} setExam={setExam} go={go} />;
+    page = <ExamPage exam={exam} setExam={setExam} go={go} onExit={exitExam} />;
     title = 'امتحان · ' + exam.name;
   } else if (r === 'result' && exam) {
     page = <ResultPage exam={exam} setExam={setExam} go={go} />;

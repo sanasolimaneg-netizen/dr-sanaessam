@@ -1038,12 +1038,7 @@ function ResultsTab({ subject, exams, active }) {
             <div className="ei-main">
               <h3>{ex.name} {ex._sh && <span className="count">من المالك</span>}</h3>
               <div className="muted small">{!subject && subjectMeta(ex.subject) ? subjectMeta(ex.subject).label + ' · ' : ''}{ex.qs ? ex.qs.length + ' سؤال · ' : ''}{hist.length ? `${hist.length} محاولة` : 'لسه ما اتحلش'}</div>
-              {hist.length > 0 && last.total > 0 && (
-                <div className={cx('ei-score', last.pct >= 50 ? 'ok' : 'bad')}>
-                  آخر نتيجة: <b>{last.right} / {last.total}</b> ({last.pct}%)
-                  {ex.best > 0 && ex.best > last.pct && last.kind === 'full' && <span className="muted small"> · أعلى نتيجة {ex.best}%</span>}
-                </div>
-              )}
+              {hist.length > 0 && last.total > 0 && <ScoreBreakdown h={last} best={ex.best} />}
               {hist.length > 0 && (
                 <div className="ei-hist">
                   <span className="muted small">المحاولات بالترتيب (دوس على أي محاولة تشوف أخطاءها):</span>
@@ -1120,12 +1115,7 @@ function ExamsList({ exams, onStart, onStartWrong, onRename, onDelete, goCreate 
               {ex.qs.length} سؤال ({ex.mcq} اختياري{ex.essay ? ` + ${ex.essay} مقالي` : ''}) · اتعمل {fmtDate(ex.created)}
               {hist.length ? ` · ${hist.length} محاولة (نتايجك انت بس)` : ' · لسه ما حلتهوش'}
             </div>
-            {hist.length > 0 && last.total > 0 && (
-              <div className={cx('ei-score', last.pct >= 50 ? 'ok' : 'bad')}>
-                آخر نتيجة: <b>{last.right} / {last.total}</b> ({last.pct}%)
-                {ex.best > 0 && ex.best > last.pct && last.kind === 'full' && <span className="muted small"> · أعلى نتيجة {ex.best}%</span>}
-              </div>
-            )}
+            {hist.length > 0 && last.total > 0 && <ScoreBreakdown h={last} best={ex.best} />}
             {hist.length > 0 && (
               <div className="ei-hist">
                 <span className="muted small">النتايج بالترتيب (دوس على أي نتيجة تشوف أخطاءها):</span>
@@ -1182,13 +1172,48 @@ function ExamsList({ exams, onStart, onStartWrong, onRename, onDelete, goCreate 
   );
 }
 
+/* تفصيل نتيجة المحاولة: الاختياري لوحده والمقالي لوحده والإجمالي */
+const fmtN = x => (Number.isInteger(x) ? String(x) : x.toFixed(1));
+const pctOf = (a, b) => (b ? Math.round(a / b * 100) : 0);
+function ScoreBreakdown({ h, best }) {
+  const legacy = h.mcqTotal == null;
+  const mS = legacy ? h.right : h.mcqRight;
+  const mT = legacy ? h.total : h.mcqTotal;
+  const eT = h.essays || 0;
+  const eS = legacy ? null : (h.essayScore || 0);
+  const row = (label, sc, tot) => (
+    <div className={cx('sb-row', pctOf(sc, tot) >= 50 ? 'ok' : 'bad')}>
+      <span className="sb-l">{label}</span>
+      <b>{fmtN(sc)} / {tot}</b>
+      <span className="sb-p">{pctOf(sc, tot)}%</span>
+      <span className="sb-w">{tot - sc > 0 ? fmtN(tot - sc) + ' خطأ' : 'من غير أخطاء'}</span>
+    </div>
+  );
+  return (
+    <div className="ei-score score-break">
+      {mT > 0 && row('الاختياري', mS, mT)}
+      {eT > 0 && (legacy
+        ? <div className="sb-row"><span className="sb-l">المقالي</span><span className="muted small">{eT} سؤال (من نتيجة قديمة، من غير درجة)</span></div>
+        : row('المقالي', eS, eT))}
+      {!legacy && mT > 0 && eT > 0 && (
+        <div className={cx('sb-row sb-total', h.pct >= 50 ? 'ok' : 'bad')}>
+          <span className="sb-l">الإجمالي</span><b>{fmtN(h.right)} / {h.total}</b><span className="sb-p">{h.pct}%</span>
+          <span className="sb-w">{fmtN(h.total - h.right) > 0 ? fmtN(h.total - h.right) + ' خطأ' : 'من غير أخطاء'}</span>
+        </div>
+      )}
+      {best > 0 && best > h.pct && h.kind === 'full' && <div className="muted small">أعلى نتيجة {best}%</div>}
+    </div>
+  );
+}
+
 /* ---------- أخطاء محاولة معيّنة وقتها ---------- */
 function ReviewWrong({ ex, h, n, onClose }) {
   const items = h.wrong.map(w => ({ q: ex.qs[w.i], u: w.u, i: w.i })).filter(x => x.q);
   return (
     <Modal title={`أخطاء المحاولة ${n}${h.kind === 'wrong' ? ' (امتحان الأخطاء)' : ''}`} onClose={onClose}
       footer={<button className="btn primary" onClick={onClose} data-autofocus>تمام</button>}>
-      <p className="muted small">{h.right} / {h.total} ({h.pct}%) · {fmtDate(h.at)}</p>
+      <ScoreBreakdown h={h} />
+      <p className="muted small">{fmtDate(h.at)}</p>
       {items.length === 0 ? <p>مفيش أخطاء في المحاولة دي.</p> : (
         <ol className="plain rv-list">
           {items.map(({ q, u, i }) => (
