@@ -3,7 +3,7 @@ import { Icon, SubjectIcon, Modal, Breadcrumb, useToast, cx, AuthCtx } from './u
 import { build, diagnose, SAMPLE_Q, SAMPLE_A, PROMPT, LET } from './parser.js';
 import {
   SUBJECTS, NOSUBJ, subjectMeta, loadLib, saveLib, subjOf, uid, useSession, selEntries, combine, addToLibrary, getBank, mergeInto, sortQs, qKey, libStats,
-  DEFAULT_OPTS, typeCounts, inRange, planCounts, planExam, fmtDate, hasPages, pageGroups, pageRows, loadExams, saveExams, histOf,
+  DEFAULT_OPTS, typeCounts, inRange, planCounts, planExam, fmtDate, hasPages, pageGroups, pageRows, loadExams, saveExams, histOf, loadPrompt, savePrompt,
 } from './store.js';
 import { pageLabel, parsePageSearch, matchPage, inLesson } from './pagelogic.js';
 import * as cloud from './cloud.js';
@@ -369,13 +369,7 @@ function AddFile({ subject, meta, lib, commit, onSaved }) {
       <details className="help">
         <summary>الصيغة المطلوبة للملفين وبرومبت NotebookLM</summary>
         <p>الأرقام لازم تكون متسلسلة 1، 2، 3... في الملفين، ونفس الرقم = نفس السؤال. السؤال اللي تحته اختيارات (أ ب ج د) بيتحسب اختياري، واللي من غير اختيارات بيتحسب مقالي. لو رفعت أكتر من ملف، كل ملف بيبدأ ترقيمه من 1 واختار ملفات الأسئلة والإجابات بنفس الترتيب.</p>
-        <div className="grid2">
-          <div><b>مثال لملف الأسئلة</b><pre className="fmt">{SAMPLE_Q}</pre></div>
-          <div><b>مثال لملف الإجابات</b><pre className="fmt">{SAMPLE_A}</pre></div>
-        </div>
-        <b>برومبت تكتبه في NotebookLM</b>
-        <pre className="fmt">{PROMPT}</pre>
-        <CopyBtn text={PROMPT} />
+        <PromptEditor />
       </details>
 
       {ask && (
@@ -388,6 +382,43 @@ function AddFile({ subject, meta, lib, commit, onSaved }) {
         </Modal>
       )}
     </section>
+  );
+}
+
+/* برومبت NotebookLM: بيتعدّل وبيتحفظ في حساب المستخدم (وبيرجع للأصلي بزرار) */
+function PromptEditor() {
+  const notify = useToast();
+  const [saved, setSaved] = useState(() => loadPrompt());
+  const [draft, setDraft] = useState(() => loadPrompt() || PROMPT);
+  const base = saved || PROMPT;
+  const changed = draft !== base;
+  const isDefault = !saved;
+  const save = () => {
+    const t = draft.trim();
+    if (!t) { notify('البرومبت فاضي. اكتب حاجة أو اضغط «الرجوع للأصلي».', 'err'); return; }
+    const v = t === PROMPT.trim() ? '' : draft;
+    if (!savePrompt(v)) { notify('المتصفح مش سامح بالحفظ.', 'err'); return; }
+    setSaved(v);
+    setDraft(v || PROMPT);
+    notify('اتحفظ البرومبت');
+  };
+  const reset = () => {
+    if (!savePrompt('')) { notify('المتصفح مش سامح بالحفظ.', 'err'); return; }
+    setSaved('');
+    setDraft(PROMPT);
+    notify('رجع البرومبت للأصلي');
+  };
+  return (
+    <div className="field prompt-edit">
+      <label htmlFor="promptText">برومبت تكتبه في NotebookLM <span className="muted small">({isDefault ? 'الأصلي' : 'نسختك المحفوظة'}{changed ? ' · فيه تعديل لسه ما اتحفظش' : ''})</span></label>
+      <textarea id="promptText" className="prompt-area" value={draft} onChange={e => setDraft(e.target.value)} spellCheck={false} />
+      <div className="row">
+        <button className="btn primary sm" onClick={save} disabled={!changed}><Icon name="check" size={16} /> حفظ البرومبت</button>
+        <button className="btn ghost sm" onClick={() => setDraft(base)} disabled={!changed}>تراجع عن التعديل</button>
+        <button className="btn ghost sm" onClick={reset} disabled={isDefault && !changed}>الرجوع للأصلي</button>
+        <CopyBtn text={draft} />
+      </div>
+    </div>
   );
 }
 
@@ -497,6 +528,9 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
   const [ln, setLn] = useState({ name: '', from: '', to: '' });
   const [editId, setEditId] = useState(null);
   const [lerr, setLerr] = useState('');
+  const [selMode, setSelMode] = useState(false);
+  const [selPages, setSelPages] = useState([]);
+  const [delPagesOpen, setDelPagesOpen] = useState(false);
 
   const isOpen = k => open.includes(k);
   const flip = k => setOpen(p => (p.includes(k) ? p.filter(x => x !== k) : [...p, k]));
@@ -513,6 +547,46 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
   const toggleAll = () => setSelIds(p => (allSel ? p.filter(id => !visibleIds.includes(id)) : [...new Set([...p, ...visibleIds])]));
 
   const updateBank = fn => commit(lib.map(s => (s.id === bank.id ? fn(s) : s)));
+
+  /* حذف أكتر من صفحة مرة واحدة: بنحذف أسئلة المستخدم بس (محتوى المالك للقراءة فقط) */
+  const delCount = useMemo(() => {
+    const m = new Map();
+    if (bank) bank.qs.forEach(x => { if (x.page && !x._sh) m.set(x.page, (m.get(x.page) || 0) + 1); });
+    return m;
+  }, [bank]);
+  const canPick = own && !!bank && delCount.size > 0;
+  const pickable = hits.filter(g => delCount.has(g.page));
+  const allPicked = pickable.length > 0 && pickable.every(g => selPages.includes(g.page));
+  const togglePick = p => setSelPages(s => (s.includes(p) ? s.filter(x => x !== p) : [...s, p]));
+  const pickAll = () => setSelPages(s => (allPicked ? s.filter(p => !pickable.some(g => g.page === p)) : [...new Set([...s, ...pickable.map(g => g.page)])]));
+  const exitSel = () => { setSelMode(false); setSelPages([]); setDelPagesOpen(false); };
+  const livePicked = selPages.filter(p => delCount.has(p));
+  const selQCount = livePicked.reduce((n, p) => n + delCount.get(p), 0);
+  const doDeletePages = () => {
+    const set = new Set(livePicked);
+    const qsLeft = bank.qs.filter(x => x._sh || !set.has(x.page));
+    if (!qsLeft.length) {
+      /* اتحذف كل شيء: نشيل البنك كله بدل ما يفضل فاضي */
+      const ids = [bank.id, ...(bank.lessons || []).map(l => l.id)];
+      if (commit(lib.filter(s => s.id !== bank.id))) {
+        setSelIds(p => p.filter(x => !ids.includes(x)));
+        notify(`اتحذف ${set.size} ${set.size === 1 ? 'صفحة' : 'صفحات'} (${selQCount} سؤال)`);
+        exitSel();
+      }
+      return;
+    }
+    const gone = (bank.lessons || []).filter(l => !l._sh && !qsLeft.some(x => inLesson(x, l))).map(l => l.id);
+    const ok = updateBank(b => ({
+      ...b,
+      qs: sortQs(qsLeft),
+      lessons: (b.lessons || []).filter(l => !gone.includes(l.id)),
+    }));
+    if (ok) {
+      if (gone.length) setSelIds(p => p.filter(x => !gone.includes(x)));
+      notify(`اتحذف ${set.size} ${set.size === 1 ? 'صفحة' : 'صفحات'} (${selQCount} سؤال)${gone.length ? ` · واتشال ${gone.length} ${gone.length === 1 ? 'درس' : 'دروس'} بقوا من غير أسئلة` : ''}`);
+      exitSel();
+    }
+  };
 
   const examOnPages = pages => {
     const want = new Set(pages.map(String));
@@ -587,6 +661,18 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
     return (
       <div className="page-list">
         {list.map(g => {
+          if (selMode) {
+            const n = delCount.get(g.page) || 0;
+            const picked = selPages.includes(g.page);
+            return (
+              <div key={g.page} className={cx('page-row', picked && 'picked')}>
+                <label className={cx('page-toggle', 'pick', !n && 'locked')} title={n ? '' : 'محتوى المالك للقراءة فقط'}>
+                  <input type="checkbox" checked={picked} disabled={!n} onChange={() => togglePick(g.page)} />
+                  <b>صفحة {g.page}</b>
+                </label>
+              </div>
+            );
+          }
           const k = 'p:' + scope + ':' + g.page;
           const on = isOpen(k);
           const items = on ? bank.qs.map((x, i) => ({ x, i })).filter(o => o.x.page === g.page) : [];
@@ -631,6 +717,7 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
         <h2 id="lib-h"><Icon name="list" size={20} /> دروس {meta.label}</h2>
         <div className="row">
           {own && bank && <button className="btn ghost sm" onClick={() => setEditor({ page: '' })}><Icon name="plus" size={16} /> سؤال</button>}
+          {canPick && !selMode && <button className="btn ghost sm" onClick={() => setSelMode(true)}><Icon name="trash" size={16} /> حذف صفحات</button>}
           {visibleIds.length > 0 && <button className="btn ghost sm" onClick={toggleAll}>{allSel ? 'إلغاء التحديد' : 'تحديد الكل'}</button>}
         </div>
       </div>
@@ -649,6 +736,16 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
             {q && <button className="btn ghost sm" onClick={() => setQ('')}>مسح</button>}
           </div>
           <p className="muted small">{searchMsg}</p>
+          {selMode && (
+            <div className="selbar" role="region" aria-label="حذف أكتر من صفحة">
+              <span><b>{livePicked.length}</b> صفحة محددة{selQCount ? ` · ${selQCount} سؤال` : ''}</span>
+              <div className="row">
+                <button className="btn ghost sm" onClick={pickAll} disabled={!pickable.length}>{allPicked ? 'إلغاء تحديد المعروض' : 'تحديد المعروض'}</button>
+                <button className="btn ghost sm" onClick={exitSel}>إلغاء</button>
+                <button className="btn danger-solid sm" onClick={() => setDelPagesOpen(true)} disabled={!livePicked.length}><Icon name="trash" size={16} /> حذف المحدد</button>
+              </div>
+            </div>
+          )}
 
           <ul className="files">
             {showBank && (
@@ -700,14 +797,14 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
                 )}
 
                 <div className="sec-head">
-                  <button className="page-toggle all" aria-expanded={spec.active || isOpen('bank')} onClick={() => flip('bank')}>
+                  <button className="page-toggle all" aria-expanded={spec.active || selMode || isOpen('bank')} onClick={() => flip('bank')}>
                     <Icon name="back" size={16} className="chev" /> <b>{spec.active ? 'الصفحات المطابقة' : 'كل الصفحات'}</b> <span className="muted small">({hits.length})</span>
                   </button>
                   {spec.multi && hits.length > 1 && (
                     <button className="btn ghost sm" onClick={() => examOnPages(hits.map(g => g.page))}>امتحان في الصفحات دي ({hits.length}) <Icon name="back" size={14} className="flip" /></button>
                   )}
                 </div>
-                {(spec.active || isOpen('bank')) && renderPages('b')}
+                {(spec.active || selMode || isOpen('bank')) && renderPages('b')}
               </li>
             )}
 
@@ -760,6 +857,16 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
         </Modal>
       )}
 
+      {delPagesOpen && livePicked.length > 0 && (
+        <Modal title="حذف الصفحات المحددة" onClose={() => setDelPagesOpen(false)}
+          footer={<>
+            <button className="btn ghost" onClick={() => setDelPagesOpen(false)} data-autofocus>إلغاء</button>
+            <button className="btn danger-solid" onClick={doDeletePages}>احذف {livePicked.length} {livePicked.length === 1 ? 'صفحة' : 'صفحات'}</button>
+          </>}>
+          <p>هتحذف {livePicked.length} {livePicked.length === 1 ? 'صفحة' : 'صفحات'} ({selQCount} سؤال) نهائيًا من حسابك. محتوى المالك مش هيتأثر.</p>
+          <p className="muted">{[...livePicked].sort((a, b) => (+a || 0) - (+b || 0)).join(' · ')}</p>
+        </Modal>
+      )}
       {delQ != null && bank && bank.qs[delQ] && (
         <Modal title="حذف السؤال" onClose={() => setDelQ(null)}
           footer={<>

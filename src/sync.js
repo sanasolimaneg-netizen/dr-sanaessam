@@ -39,10 +39,10 @@ const stripRes = e => { const { history, last, best, attempts, ...rest } = e; re
 
 export function createSync(adapter, uid, { sharedUid = uid, onError = () => {}, delay = 700, retryMs = 8000 } = {}) {
   const hasShared = sharedUid !== uid;
-  const cache = { lib: '[]', exams: '[]', sharedLib: '[]', sharedExams: '[]', profile: { name: '', photo: '' }, results: {} };
+  const cache = { lib: '[]', exams: '[]', sharedLib: '[]', sharedExams: '[]', profile: { name: '', photo: '' }, prompt: '', results: {} };
   const resDirty = new Set();
   const synced = { sets: new Map(), exams: new Map() };
-  const dirty = { lib: false, exams: false, profile: false };
+  const dirty = { lib: false, exams: false, profile: false, prompt: false };
   let timer = null;
   let running = null;
   let again = false;
@@ -77,6 +77,7 @@ export function createSync(adapter, uid, { sharedUid = uid, onError = () => {}, 
     }
     const p = await adapter.getProfile(uid);
     cache.profile = { name: (p && p.name) || '', photo: (p && p.photo) || '' };
+    cache.prompt = await adapter.getPrompt(uid);
     if (dirty.lib || dirty.exams || resDirty.size) schedule();
   }
 
@@ -84,6 +85,10 @@ export function createSync(adapter, uid, { sharedUid = uid, onError = () => {}, 
     if (dirty.profile) {
       dirty.profile = false;
       try { await adapter.setProfile(uid, cache.profile); } catch (e) { dirty.profile = true; throw e; }
+    }
+    if (dirty.prompt) {
+      dirty.prompt = false;
+      try { await adapter.setPrompt(uid, cache.prompt); } catch (e) { dirty.prompt = true; throw e; }
     }
     for (const id of [...resDirty]) {
       resDirty.delete(id);
@@ -134,10 +139,10 @@ export function createSync(adapter, uid, { sharedUid = uid, onError = () => {}, 
     return running;
   }
 
-  const pending = () => dirty.lib || dirty.exams || dirty.profile || resDirty.size > 0 || !!running || !!timer;
+  const pending = () => dirty.lib || dirty.exams || dirty.profile || dirty.prompt || resDirty.size > 0 || !!running || !!timer;
   /* بيرفع أي تغييرات لسه ماترفعتش (قبل تسجيل الخروج مثلًا) */
   async function flush() {
-    for (let i = 0; i < 3 && (dirty.lib || dirty.exams || dirty.profile || resDirty.size || running); i++) await run();
+    for (let i = 0; i < 3 && (dirty.lib || dirty.exams || dirty.profile || dirty.prompt || resDirty.size || running); i++) await run();
   }
   const mark = key => { dirty[key] = true; schedule(); };
 
@@ -147,6 +152,7 @@ export function createSync(adapter, uid, { sharedUid = uid, onError = () => {}, 
     getExams: () => cache.exams, setExams: s => { cache.exams = s; mark('exams'); },
     getSharedLib: () => cache.sharedLib, getSharedExams: () => cache.sharedExams,
     getProfile: () => cache.profile, setProfile: p => { cache.profile = p; mark('profile'); },
+    getPrompt: () => cache.prompt, setPrompt: t => { cache.prompt = t; mark('prompt'); },
     getResults: () => cache.results,
     setResult: (id, r) => { cache.results = { ...cache.results, [id]: r }; resDirty.add(id); schedule(); },
   };

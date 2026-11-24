@@ -19,7 +19,7 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 
 /* مصدر البيانات: بعد تسجيل الدخول بنربط نسخة السحابة (cloud.js → sync.js) هنا. الواجهة بتفضل متزامنة وسريعة. */
 let backend = null;
-const EMPTY = { getLib: () => '[]', setLib() {}, getExams: () => '[]', setExams() {}, getSharedLib: () => '[]', getSharedExams: () => '[]', getProfile: () => ({ name: '', photo: '' }), setProfile() {}, getResults: () => ({}), setResult() {} };
+const EMPTY = { getLib: () => '[]', setLib() {}, getExams: () => '[]', setExams() {}, getSharedLib: () => '[]', getSharedExams: () => '[]', getProfile: () => ({ name: '', photo: '' }), setProfile() {}, getPrompt: () => '', setPrompt() {}, getResults: () => ({}), setResult() {} };
 export const attachBackend = b => { backend = b; };
 export const detachBackend = () => { backend = null; };
 const bk = () => backend || EMPTY;
@@ -362,6 +362,12 @@ export function recordResult(id, entry) {
   hist.push(entry);
   const full = hist.filter(h => h.kind === 'full');
   bk().setResult(id, { history: hist, last: entry, best: full.length ? Math.max(...full.map(h => h.pct)) : 0, attempts: hist.length });
+}
+
+/* ---------- برومبت NotebookLM (بيتعدّل ويتحفظ لكل مستخدم) ---------- */
+export const loadPrompt = () => String(bk().getPrompt() || '');
+export function savePrompt(text) {
+  try { bk().setPrompt(String(text || '')); return true; } catch { return false; }
 }
 
 /* ---------- ملف المستخدم (الاسم والصورة) ---------- */

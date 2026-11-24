@@ -59,6 +59,12 @@ const adapter = {
     return s.exists() ? s.data() : null;
   },
   async setProfile(uid, p) { await setDoc(doc(db, 'users', uid, 'meta', 'profile'), p); },
+  /* البرومبت المحفوظ: مستند users/{uid}/meta/prompt (خاص بصاحبه، والقواعد الحالية بتسمح بيه) */
+  async getPrompt(uid) {
+    const s = await getDoc(doc(db, 'users', uid, 'meta', 'prompt'));
+    return s.exists() ? String(s.data().text || '') : '';
+  },
+  async setPrompt(uid, text) { await setDoc(doc(db, 'users', uid, 'meta', 'prompt'), { text }); },
   /* نتايج الامتحانات: مستند لكل امتحان تحت users/{uid}/results، وخاصة بصاحبها */
   async listResults(uid) {
     const snap = await getDocs(collection(db, 'users', uid, 'results'));

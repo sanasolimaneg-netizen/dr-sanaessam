@@ -492,3 +492,13 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
 .sb-p{font-weight:700}
 .sb-w{color:var(--muted);font-size:13px}
 .sb-total{border-top:1px dashed var(--line);padding-top:4px;margin-top:2px}
+
+/* حذف أكتر من صفحة: شريط التحديد وصفوف الصفحات القابلة للتحديد */
+.selbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 12px;margin:0 0 10px;border:1px solid color-mix(in srgb,var(--bad) 35%,transparent);background:color-mix(in srgb,var(--bad) 8%,transparent);border-radius:var(--radius-sm)}
+.page-toggle.pick{cursor:pointer;user-select:none}
+.page-toggle.pick input{width:18px;height:18px;flex:none;accent-color:var(--bad)}
+.page-toggle.pick.locked{opacity:.5;cursor:not-allowed}
+.page-row.picked .page-toggle{background:color-mix(in srgb,var(--bad) 12%,transparent)}
+.prompt-edit{margin-top:10px}
+.prompt-edit .row{margin-top:8px}
+textarea.prompt-area{min-height:340px;font-size:14.5px}
