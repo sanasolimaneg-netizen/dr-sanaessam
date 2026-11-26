@@ -11,7 +11,7 @@ export function pageGroups(qs) {
     const page = q.page || '';
     const key = src + '\u0001' + page;
     if (!map.has(key)) {
-      map.set(key, { key, src, page, mcq: 0, essay: 0 });
+      map.set(key, { key, src, page, source: q.source || '', mcq: 0, essay: 0 });
       if (!srcOrder.includes(src)) srcOrder.push(src);
     }
     map.get(key)[q.type === 'mcq' ? 'mcq' : 'essay']++;

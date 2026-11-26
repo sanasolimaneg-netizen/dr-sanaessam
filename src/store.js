@@ -33,8 +33,9 @@ export function saveLib(l) {
       if (!s.bank) { out.push(s); return; }
       const qs = s.qs.filter(q => !q._sh);
       const lessons = (s.lessons || []).filter(x => !x._sh);
-      const { shOnly, ...rest } = s;
-      if (shOnly && !qs.length && !lessons.length) return;
+      const { shOnly, _shSrc, ...rest } = s;
+      const hasSrc = (rest.sources || []).length > 0;
+      if (shOnly && !qs.length && !lessons.length && !hasSrc) return;
       out.push({ ...rest, qs, lessons });
     });
     bk().setLib(JSON.stringify(out));
@@ -52,8 +53,10 @@ function withShared(own) {
     const sq = (s.qs || []).map(q => ({ ...q, _sh: 1 }));
     const sl = (s.lessons || []).map(x => ({ ...x, _sh: 1 }));
     const i = out.findIndex(x => x.bank && subjOf(x) === k);
-    if (i < 0) out.push({ ...s, qs: sq, lessons: sl, shOnly: true });
-    else out[i] = { ...out[i], qs: sortQs([...sq, ...out[i].qs]), lessons: [...sl, ...(out[i].lessons || [])] };
+    /* مصادر المالك وتعيينها للصفحات بتتعرض مع مصادر المستخدم، ومابتتخزنش في حسابه (_shSrc / _shPageSrc) */
+    const shSrc = { _shSrc: s.sources || [] };
+    if (i < 0) out.push({ ...s, qs: sq, lessons: sl, shOnly: true, sources: [], ...shSrc });
+    else out[i] = { ...out[i], qs: sortQs([...sq, ...out[i].qs]), lessons: [...sl, ...(out[i].lessons || [])], ...shSrc };
   });
   return out;
 }
@@ -76,6 +79,19 @@ export const subjOf = s => (SUBJECTS.some(x => x.key === s.subject) ? s.subject 
    الأسئلة اللي من غير رقم صفحة بتفضل في ملفات قديمة منفصلة. */
 export const BANK_NAME = 'كل الصفحات';
 export const getBank = (lib, subject) => lib.find(s => s.bank && subjOf(s) === subject);
+
+/* ---------- المصادر ----------
+   المصدر حقل في الدرس (lesson.source)، وbank.sources = قايمة أسماء المصادر اللي اتضافت (بتظهر في القايمة المنسدلة).
+   مصدر الصفحة = مصدر أول درس بيشملها. */
+export const NOSRC = '__none__';
+export const sourcesOf = bank => [...new Set([
+  ...((bank && bank.sources) || []), ...((bank && bank._shSrc) || []),
+  ...(((bank && bank.lessons) || []).map(l => l.source).filter(Boolean)),
+])];
+export const srcOfPage = (bank, page) => {
+  const l = ((bank && bank.lessons) || []).find(x => x.source && +page >= x.from && +page <= x.to);
+  return l ? l.source : '';
+};
 
 /* مفتاح مقارنة السؤال: من غير تشكيل وهمزات ومسافات وعلامات */
 export const qKey = q => String(q.q || '').toLowerCase()
@@ -201,7 +217,7 @@ export function combine(entries) {
     const k = e.set.id + ':' + i;
     if (seen.has(k)) return; // درسين متداخلين مايكررووش السؤال
     seen.add(k);
-    out.push({ ...JSON.parse(JSON.stringify(q)), src: e.lesson ? e.name : (e.set.bank ? '' : (q.src || e.name)) });
+    out.push({ ...JSON.parse(JSON.stringify(q)), src: e.lesson ? e.name : (e.set.bank ? '' : (q.src || e.name)), source: e.set.bank ? srcOfPage(e.set, q.page) : '' });
   }));
   return out;
 }
@@ -220,6 +236,8 @@ export const DEFAULT_OPTS = {
   mode: 'all', nMcq: '', nEssay: '', from: '', to: '', shuffle: false, shuffleOpts: false,
   /* لو الملفات فيها صفحات: نطاق الصفحات، والعدد من كل صفحة، وتعديل لصفحة بعينها، وصفحات مستبعدة */
   pFrom: '', pTo: '', perMcq: '', perEssay: '', over: {}, off: [],
+  /* امتحان شامل: عدد الأسئلة من كل نوع بيتسحب عشوائي من الصفحات المحددة، وsrcs = تصفية بالمصدر (فاضية = كل المصادر) */
+  comp: false, cMcq: '', cEssay: '', srcs: [],
 };
 
 export const typeCounts = qs => ({
@@ -247,7 +265,9 @@ export function pageScope(qs, o, withOff) {
   const from = +o.pFrom || 0;
   const to = +o.pTo || 0;
   const off = o.off || [];
+  const sf = o.comp ? (o.srcs || []) : [];
   return pageGroups(qs).filter(g => {
+    if (sf.length && !sf.includes(g.source || NOSRC)) return false;
     if (!withOff && off.includes(g.key)) return false;
     if (!g.page) return !from && !to;
     const p = +g.page;
@@ -274,8 +294,24 @@ export function pageRows(qs, o, withOff) {
   });
 }
 
+/* مجموعة الأسئلة اللي بيتسحب منها الامتحان الشامل (الصفحات المحددة، أو النطاق لو الملفات من غير صفحات) */
+export function poolOf(qs, o) {
+  if (hasPages(qs)) {
+    const keys = new Set(pageScope(qs, o, false).map(g => g.key));
+    return qs.filter(q => keys.has((q.src || '') + '\u0001' + (q.page || '')));
+  }
+  return inRange(qs, +o.from || 0, +o.to || 0);
+}
+
 /* العدد اللي هيتسحب فعلًا من كل نوع */
 export function planCounts(qs, o) {
+  if (o.comp) {
+    const c = typeCounts(poolOf(qs, o));
+    const avail = { mcq: o.mode === 'essay' ? 0 : c.mcq, essay: o.mode === 'mcq' ? 0 : c.essay, rangeMcq: c.mcq, rangeEssay: c.essay };
+    const w = v => Math.max(0, +v || 0);
+    const paged = hasPages(qs);
+    return { paged, comp: true, rows: [], pages: paged ? pageScope(qs, o, false).length : 0, mcq: Math.min(w(o.cMcq), avail.mcq), essay: Math.min(w(o.cEssay), avail.essay), avail };
+  }
   if (hasPages(qs)) {
     const rows = pageRows(qs, o, false);
     const sc = pageScope(qs, o, false);
@@ -299,7 +335,12 @@ export function planExam(qs, o) {
   const pick = (arr, n) => { const a = arr.slice(); if (o.shuffle) shuffleArr(a); return a.slice(0, n); };
   let mcq = [];
   let essay = [];
-  if (c.paged) {
+  if (c.comp) {
+    /* شامل: سحب عشوائي دايمًا من كل الصفحات المحددة مع بعض */
+    const pool = poolOf(qs, o);
+    mcq = shuffleArr(pool.filter(q => q.type === 'mcq')).slice(0, c.mcq);
+    essay = shuffleArr(pool.filter(q => q.type === 'essay')).slice(0, c.essay);
+  } else if (c.paged) {
     c.rows.forEach(r => {
       const inG = qs.filter(q => (q.src || '') === r.g.src && (q.page || '') === r.g.page);
       mcq.push(...pick(inG.filter(q => q.type === 'mcq'), r.mcq));

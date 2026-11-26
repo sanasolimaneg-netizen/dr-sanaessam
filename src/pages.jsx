@@ -3,7 +3,7 @@ import { Icon, SubjectIcon, Modal, Breadcrumb, useToast, cx, AuthCtx } from './u
 import { build, diagnose, SAMPLE_Q, SAMPLE_A, PROMPT, LET } from './parser.js';
 import {
   SUBJECTS, NOSUBJ, subjectMeta, loadLib, saveLib, subjOf, uid, useSession, selEntries, combine, addToLibrary, getBank, mergeInto, sortQs, qKey, libStats,
-  DEFAULT_OPTS, typeCounts, inRange, planCounts, planExam, fmtDate, hasPages, pageGroups, pageRows, loadExams, saveExams, histOf, loadPrompt, savePrompt,
+  DEFAULT_OPTS, typeCounts, inRange, planCounts, planExam, fmtDate, hasPages, pageGroups, pageRows, loadExams, saveExams, histOf, loadPrompt, savePrompt, NOSRC, sourcesOf, srcOfPage,
 } from './store.js';
 import { pageLabel, parsePageSearch, matchPage, inLesson } from './pagelogic.js';
 import * as cloud from './cloud.js';
@@ -107,7 +107,7 @@ export function SubjectPage({ subject, startExam }) {
   const rangeErr = !!((opts.from && opts.to && +opts.from > +opts.to) || (opts.pFrom && opts.pTo && +opts.pFrom > +opts.pTo));
   const canStart = sel.length > 0 && total > 0 && !rangeErr;
 
-  const defaultName = `امتحان ${meta.label} ${exams.length + 1}`;
+  const defaultName = `${opts.comp ? 'امتحان شامل' : 'امتحان'} ${meta.label} ${exams.length + 1}`;
   const commitExams = next => {
     if (saveExams(next)) { setAllExams(loadExams()); return true; }
     notify('المتصفح مش سامح بحفظ الامتحان، جرّب تفضي مساحة.', 'err');
@@ -121,7 +121,7 @@ export function SubjectPage({ subject, startExam }) {
     const ex = {
       id: uid(), subject, name, created: Date.now(), qs: planned,
       mcq: planned.filter(q => q.type === 'mcq').length, essay: planned.filter(q => q.type === 'essay').length,
-      attempts: 0, last: null, best: 0,
+      attempts: 0, last: null, best: 0, comp: !!opts.comp,
     };
     if (!commitExams([...allExams, ex])) return false;
     setTab('exams');
@@ -223,6 +223,7 @@ function AddFile({ subject, meta, lib, commit, onSaved }) {
   const [qText, setQ] = useState('');
   const [aText, setA] = useState('');
   const [lessons, setLessons] = useState([]);
+  const [extraSrcs, setExtraSrcs] = useState([]); /* مصادر اتضافت ولسه ماتحفظتش */
   const [ask, setAsk] = useState(false);
   const notify = useToast();
 
@@ -268,7 +269,7 @@ function AddFile({ subject, meta, lib, commit, onSaved }) {
       if (from > to) return { err: `صفحة البداية أكبر من النهاية في درس «${nm}».` };
       if (minP !== '' && (from < minP || to > maxP)) return { err: `صفحات درس «${nm}» لازم تكون من ${minP} إلى ${maxP} (الصفحات الموجودة بس).` };
       if (!lessonQs({ from, to }) && !inBank({ from, to })) return { err: `مفيش أسئلة في صفحات درس «${nm}» (من ${from} إلى ${to}).` };
-      out.push({ id: uid(), name: nm, from, to });
+      out.push({ id: uid(), name: nm, from, to, source: l.source || '' });
     }
     return { lessons: out };
   };
@@ -277,7 +278,11 @@ function AddFile({ subject, meta, lib, commit, onSaved }) {
     const r = addToLibrary(lib, subject, parsed.qs, ls, `${meta.label} ${count + 1}`);
     setAsk(false);
     if (!r.added && !ls.length) { notify(r.dup ? `كل الأسئلة (${r.dup}) موجودة قبل كده في نفس الصفحات.` : 'مفيش حاجة اتضافت.', 'err'); return; }
-    if (!commit(r.lib)) return;
+    /* المصادر المستخدمة أو المضافة بتتحفظ في قايمة مصادر المادة */
+    const srcAdd = [...new Set([...extraSrcs, ...ls.map(l => l.source).filter(Boolean)])];
+    const lib2 = srcAdd.length && r.bank ? r.lib.map(s => (s.id === r.bank.id ? { ...s, sources: [...new Set([...(s.sources || []), ...srcAdd])] } : s)) : r.lib;
+    if (!commit(lib2)) return;
+    setExtraSrcs([]);
     const parts = [];
     if (r.added) parts.push(`اتضاف ${r.added} سؤال`);
     if (r.dup) parts.push(`اتخطّى ${r.dup} سؤال مكرر`);
@@ -347,16 +352,20 @@ function AddFile({ subject, meta, lib, commit, onSaved }) {
           {lessons.map(l => {
             const n = l.from ? lessonQs(l) : null;
             return (
-              <div className="lesson-row" key={l.k}>
+              <div className="lesson-item" key={l.k}>
+              <div className="lesson-row">
                 <input type="text" value={l.name} onChange={e => setL(l.k, { name: e.target.value })} placeholder="اسم الدرس" aria-label="اسم الدرس" />
                 <input type="number" min="1" inputMode="numeric" value={l.from} max={maxP || undefined} onChange={e => setL(l.k, { from: numIn(e.target.value) })} onBlur={fixMin(l.k, 'from')} placeholder={'من ' + minP} aria-label="من صفحة" />
                 <input type="number" min="1" inputMode="numeric" value={l.to} max={maxP || undefined} onChange={e => setL(l.k, { to: numIn(e.target.value) })} onBlur={fixMin(l.k, 'to')} placeholder={'إلى ' + (l.from || maxP)} aria-label="إلى صفحة" />
                 <button className="icon-btn danger" onClick={() => setLessons(p => p.filter(x => x.k !== l.k))} aria-label="حذف الدرس"><Icon name="trash" size={18} /></button>
                 {n != null && <span className="lesson-n muted small">{n} سؤال</span>}
               </div>
+              <SourcePick id={'src-' + l.k} value={l.source || ''} onChange={v => setL(l.k, { source: v })}
+                sources={[...new Set([...sourcesOf(bank), ...extraSrcs])]} onAdd={n => setExtraSrcs(p => [...new Set([...p, n])])} />
+              </div>
             );
           })}
-          <button className="btn ghost sm" onClick={() => setLessons(p => [...p, { k: uid(), name: '', from: '', to: '' }])}><Icon name="plus" size={16} /> إضافة درس</button>
+          <button className="btn ghost sm" onClick={() => setLessons(p => [...p, { k: uid(), name: '', from: '', to: '', source: '' }])}><Icon name="plus" size={16} /> إضافة درس</button>
         </fieldset>
       )}
 
@@ -511,6 +520,37 @@ function QEditor({ page: p0, onClose, onSave }) {
   );
 }
 
+/* قايمة منسدلة للمصدر + زر إضافة مصدر جديد (بيظهر في القايمة وبيتحدد) */
+function SourcePick({ id, value, onChange, sources, onAdd }) {
+  const [adding, setAdding] = useState(false);
+  const [nv, setNv] = useState('');
+  const [err, setErr] = useState('');
+  const add = () => {
+    const n = nv.trim();
+    if (!n) { setErr('اكتب اسم المصدر.'); return; }
+    onAdd(n); onChange(n);
+    setNv(''); setErr(''); setAdding(false);
+  };
+  return (
+    <div className="src-pick">
+      <label htmlFor={id}>المصدر</label>
+      <select id={id} value={sources.includes(value) ? value : ''} onChange={e => onChange(e.target.value)}>
+        <option value="">بدون مصدر</option>
+        {sources.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+      <button type="button" className="btn ghost sm" onClick={() => { setAdding(a => !a); setErr(''); }}><Icon name="plus" size={16} /> إضافة مصدر</button>
+      {adding && (
+        <div className="src-add">
+          <input type="text" maxLength={60} value={nv} placeholder="اسم المصدر الجديد، مثال: كتاب المدرسة" aria-label="اسم المصدر الجديد"
+            onChange={e => setNv(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+          <button type="button" className="btn primary sm" onClick={add}>إضافة</button>
+          {err && <span className="err-text">{err}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- الدروس: إجمالي الصفحات وتحتها الدروس، وفتح الصفحات لإضافة أو حذف أسئلة ---------- */
 function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit, goExam, goAdd }) {
   const notify = useToast();
@@ -525,7 +565,7 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
   const [delQ, setDelQ] = useState(null);
   const [editor, setEditor] = useState(null);
   const [lessonOpen, setLessonOpen] = useState(false);
-  const [ln, setLn] = useState({ name: '', from: '', to: '' });
+  const [ln, setLn] = useState({ name: '', from: '', to: '', source: '' });
   const [editId, setEditId] = useState(null);
   const [lerr, setLerr] = useState('');
   const [selMode, setSelMode] = useState(false);
@@ -547,6 +587,19 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
   const toggleAll = () => setSelIds(p => (allSel ? p.filter(id => !visibleIds.includes(id)) : [...new Set([...p, ...visibleIds])]));
 
   const updateBank = fn => commit(lib.map(s => (s.id === bank.id ? fn(s) : s)));
+
+  /* ---------- المصادر (حقل جوه الدرس) ---------- */
+  const sources = sourcesOf(bank);
+  const srcOf = p => srcOfPage(bank, p);
+  const addSource = name => { if (bank) updateBank(b => ({ ...b, sources: [...new Set([...(b.sources || []), name])] })); };
+  const anySrc = lessons.some(l => l.source);
+  /* الدروس متجمّعة تحت اسم المصدر */
+  const lessonGroups = (() => {
+    const m = new Map();
+    lessons.forEach(l => { const k = l.source || ''; if (!m.has(k)) m.set(k, []); m.get(k).push(l); });
+    const order = [...sources, ''];
+    return [...m.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+  })();
 
   /* حذف أكتر من صفحة مرة واحدة: بنحذف أسئلة المستخدم بس (محتوى المالك للقراءة فقط) */
   const delCount = useMemo(() => {
@@ -623,8 +676,8 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
     }
   };
 
-  const openLesson = () => { setEditId(null); setLessonOpen(true); setLn({ name: '', from: '', to: '' }); setLerr(''); };
-  const editLesson = l => { setEditId(l.id); setLessonOpen(true); setLn({ name: l.name, from: l.from, to: l.to }); setLerr(''); };
+  const openLesson = () => { setEditId(null); setLessonOpen(true); setLn({ name: '', from: '', to: '', source: '' }); setLerr(''); };
+  const editLesson = l => { setEditId(l.id); setLessonOpen(true); setLn({ name: l.name, from: l.from, to: l.to, source: l.source || '' }); setLerr(''); };
   const minB = bankPages.length ? Math.min(...bankPages) : 1;
   const maxB = bankPages.length ? Math.max(...bankPages) : 1;
   const saveLesson = () => {
@@ -637,13 +690,13 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
     if (from < minB || to > maxB) { setLerr(`الصفحات المتاحة من ${minB} إلى ${maxB} بس.`); return; }
     if (!bank.qs.some(x => inLesson(x, { from, to }))) { setLerr('مفيش أسئلة في الصفحات دي.'); return; }
     if (editId) {
-      if (updateBank(b => ({ ...b, lessons: (b.lessons || []).map(y => (y.id === editId ? { ...y, name, from, to } : y)) }))) {
+      if (updateBank(b => ({ ...b, lessons: (b.lessons || []).map(y => (y.id === editId ? { ...y, name, from, to, source: ln.source || '' } : y)) }))) {
         notify(`اتعدّل درس «${name}»`);
         setLessonOpen(false);
       }
       return;
     }
-    const l = { id: uid(), name, from, to };
+    const l = { id: uid(), name, from, to, source: ln.source || '' };
     if (updateBank(b => ({ ...b, lessons: [...(b.lessons || []), l] }))) {
       setSelIds(p => [...p, l.id]);
       notify(`اتضاف درس «${name}»`);
@@ -681,6 +734,7 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
               <button className="page-toggle" aria-expanded={on} onClick={() => flip(k)}>
                 <Icon name="back" size={16} className="chev" />
                 <b>صفحة {g.page}</b>
+                {srcOf(g.page) && <span className="psrc" title={'المصدر: ' + srcOf(g.page)}>{srcOf(g.page)}</span>}
               </button>
               {on && (
                 <div className="page-body">
@@ -768,8 +822,11 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
                 {lessons.length === 0 ? (
                   <p className="muted small pad">{spec.active ? 'مفيش دروس فيها الصفحات دي.' : own ? 'لسه مفيش دروس. اضغط «درس جديد» وحدد من صفحة وإلى صفحة وسمّيه.' : 'لسه مفيش دروس.'}</p>
                 ) : (
+                  <>{lessonGroups.map(([sk, items]) => (
+                  <React.Fragment key={sk || '_none'}>
+                  {anySrc && <div className="src-head">{sk ? <>المصدر: <b>{sk}</b></> : 'بدون مصدر'}</div>}
                   <ul className="lessons">
-                    {lessons.map(l => {
+                    {items.map(l => {
                       const inL = bank.qs.filter(x => inLesson(x, l));
                       const lc = typeCounts(inL);
                       const np = new Set(inL.map(x => x.page)).size;
@@ -794,6 +851,8 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
                       );
                     })}
                   </ul>
+                  </React.Fragment>
+                  ))}</>
                 )}
 
                 <div className="sec-head">
@@ -841,6 +900,9 @@ function Library({ meta, subject, lib, mine, selIds, setSelIds, setOpts, commit,
           <div className="field">
             <label htmlFor="ln-name">اسم الدرس</label>
             <input id="ln-name" type="text" value={ln.name} onChange={e => setLn({ ...ln, name: e.target.value })} placeholder="مثال: الانقسام الميتوزي" data-autofocus />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <SourcePick id="ln-src" value={ln.source} onChange={v => setLn(p => ({ ...p, source: v }))} sources={sources} onAdd={addSource} />
           </div>
           <div className="grid2 tight" style={{ marginTop: 12 }}>
             <div className="field">
@@ -934,6 +996,10 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
   const idx = paged ? pageRows(qs, o, true) : [];
   const multiSrc = new Set(idx.map(r => r.g.src)).size > 1;
   const view = pspec.active ? idx.filter(r => matchPage(r.g.page, pspec)) : idx;
+  /* مصادر الصفحات الموجودة (للتصفية في الامتحان الشامل) */
+  const srcAll = paged ? [...new Set(pageGroups(qs).filter(g => g.page).map(g => g.source || NOSRC))] : [];
+  const showSrcFilter = srcAll.length > 1 || (srcAll.length === 1 && srcAll[0] !== NOSRC);
+  const toggleSrc = k => set({ srcs: (o.srcs || []).includes(k) ? o.srcs.filter(x => x !== k) : [...(o.srcs || []), k] });
   const overOf = key => (o.over || {})[key] || {};
   const setOver = (key, k, max) => e => {
     const v = e.target.value;
@@ -952,6 +1018,18 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
       </div>
 
       <fieldset className="fs">
+        <legend>شكل الامتحان</legend>
+        <div className="seg two" role="radiogroup">
+          {[[false, 'عادي'], [true, 'شامل (عشوائي)']].map(([v, t]) => (
+            <label key={t} className={cx('seg-item', !!o.comp === v && 'on')}>
+              <input type="radio" name="examkind" checked={!!o.comp === v} onChange={() => set({ comp: v })} />{t}
+            </label>
+          ))}
+        </div>
+        {o.comp && <p className="muted small" style={{ marginTop: 8 }}>الامتحان الشامل: حدد عدد الأسئلة من كل نوع، وبيتسحبوا عشوائي من الصفحات اللي تعلّم عليها تحت.</p>}
+      </fieldset>
+
+      <fieldset className="fs">
         <legend>نوع الأسئلة</legend>
         <div className="seg" role="radiogroup">
           {MODES.map(m => (
@@ -962,6 +1040,24 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
           ))}
         </div>
       </fieldset>
+
+      {o.comp && (
+        <fieldset className="fs">
+          <legend>عدد الأسئلة</legend>
+          <div className="grid2 tight">
+            <div className="field">
+              <label htmlFor="cMcq">عدد الاختياري <span className="muted small">من {plan.avail.mcq}</span></label>
+              <input id="cMcq" type="number" min="0" max={plan.avail.mcq || undefined} value={o.cMcq} placeholder="0"
+                disabled={!plan.avail.mcq} onChange={num('cMcq')} onBlur={clamp('cMcq', plan.avail.mcq)} />
+            </div>
+            <div className="field">
+              <label htmlFor="cEssay">عدد المقالي <span className="muted small">من {plan.avail.essay}</span></label>
+              <input id="cEssay" type="number" min="0" max={plan.avail.essay || undefined} value={o.cEssay} placeholder="0"
+                disabled={!plan.avail.essay} onChange={num('cEssay')} onBlur={clamp('cEssay', plan.avail.essay)} />
+            </div>
+          </div>
+        </fieldset>
+      )}
 
       {paged ? (
         <>
@@ -980,28 +1076,44 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
             {pRangeErr && <p className="err-text">رقم صفحة البداية أكبر من رقم النهاية.</p>}
           </fieldset>
 
+          {o.comp && showSrcFilter && (
+            <fieldset className="fs">
+              <legend>المصدر <span className="muted small">(سيبه من غير تحديد لكل المصادر)</span></legend>
+              <div className="tags">
+                {srcAll.map(k => (
+                  <label key={k} className={cx('srcchip', (o.srcs || []).includes(k) && 'on')}>
+                    <input type="checkbox" checked={(o.srcs || []).includes(k)} onChange={() => toggleSrc(k)} />
+                    {k === NOSRC ? 'بدون مصدر' : k}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
           <fieldset className="fs">
-            <legend>فهرس الصفحات <span className="muted small">({plan.rows.length} صفحة في الامتحان)</span></legend>
-            <p className="muted small">علّم على الصفحات اللي عاوزها، واكتب عدد الأسئلة لأي صفحة في الجدول (سيبه فاضي لو عاوز كل أسئلتها).</p>
+            <legend>فهرس الصفحات <span className="muted small">({plan.comp ? plan.pages : plan.rows.length} صفحة في الامتحان)</span></legend>
+            <p className="muted small">{o.comp ? 'علّم على الصفحات اللي عاوز تسحب منها، والأسئلة بتتختار عشوائي من مجموعها.' : 'علّم على الصفحات اللي عاوزها، واكتب عدد الأسئلة لأي صفحة في الجدول (سيبه فاضي لو عاوز كل أسئلتها).'}</p>
             <div className="searchbox sm">
               <label htmlFor="pidxq" className="sr">دوّر على صفحة في الفهرس</label>
               <input id="pidxq" type="search" inputMode="numeric" value={pq} onChange={e => setPq(e.target.value)} placeholder="دوّر على صفحة: 56 أو 1/2/4/6" />
             </div>
             {view.length ? (
               <div className="pidx-table">
-                <div className="prow head"><span>الصفحة</span><span>اختياري</span><span>مقالي</span></div>
+                <div className={cx('prow', 'head', o.comp && 'comp')}><span>الصفحة</span>{!o.comp && <><span>اختياري</span><span>مقالي</span></>}</div>
                 {view.map((r, i) => (
                   <React.Fragment key={r.g.key}>
                     {multiSrc && (i === 0 || view[i - 1].g.src !== r.g.src) && <div className="pfile">{r.g.src || 'بدون اسم'}</div>}
-                    <div className={cx('prow', !r.on && 'off')}>
+                    <div className={cx('prow', !r.on && 'off', o.comp && 'comp')}>
                       <label className="pl">
                         <input type="checkbox" checked={r.on} onChange={() => toggleOff(r.g.key)} aria-label={'تضمين ' + pageLabel(r.g)} />
-                        <span><b>{pageLabel(r.g)}</b><span className="muted small"> {r.g.mcq} اختياري · {r.g.essay} مقالي</span></span>
+                        <span><b>{pageLabel(r.g)}</b>{r.g.source && <span className="psrc inline">{r.g.source}</span>}<span className="muted small"> {r.g.mcq} اختياري · {r.g.essay} مقالي</span></span>
                       </label>
-                      <input type="number" min="1" max={r.maxM || undefined} value={overOf(r.g.key).m ?? ''} placeholder={r.maxM ? String(r.defM) : '-'}
-                        disabled={!r.on || !r.maxM} onChange={setOver(r.g.key, 'm', r.maxM)} aria-label={'عدد الاختياري من ' + pageLabel(r.g)} />
-                      <input type="number" min="1" max={r.maxE || undefined} value={overOf(r.g.key).e ?? ''} placeholder={r.maxE ? String(r.defE) : '-'}
-                        disabled={!r.on || !r.maxE} onChange={setOver(r.g.key, 'e', r.maxE)} aria-label={'عدد المقالي من ' + pageLabel(r.g)} />
+                      {!o.comp && <>
+                        <input type="number" min="1" max={r.maxM || undefined} value={overOf(r.g.key).m ?? ''} placeholder={r.maxM ? String(r.defM) : '-'}
+                          disabled={!r.on || !r.maxM} onChange={setOver(r.g.key, 'm', r.maxM)} aria-label={'عدد الاختياري من ' + pageLabel(r.g)} />
+                        <input type="number" min="1" max={r.maxE || undefined} value={overOf(r.g.key).e ?? ''} placeholder={r.maxE ? String(r.defE) : '-'}
+                          disabled={!r.on || !r.maxE} onChange={setOver(r.g.key, 'e', r.maxE)} aria-label={'عدد المقالي من ' + pageLabel(r.g)} />
+                      </>}
                     </div>
                   </React.Fragment>
                 ))}
@@ -1011,7 +1123,7 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
         </>
       ) : (
         <>
-          <div className="grid2 tight">
+          {!o.comp && <div className="grid2 tight">
             <div className="field">
               <label htmlFor="nMcq">عدد الاختياري <span className="muted small">من {plan.avail.mcq}</span></label>
               <input id="nMcq" type="number" min="1" max={plan.avail.mcq || undefined} value={o.nMcq} placeholder="الكل"
@@ -1022,7 +1134,7 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
               <input id="nEssay" type="number" min="1" max={plan.avail.essay || undefined} value={o.nEssay} placeholder="الكل"
                 disabled={!plan.avail.essay} onChange={num('nEssay')} onBlur={clamp('nEssay', plan.avail.essay)} />
             </div>
-          </div>
+          </div>}
 
           <fieldset className="fs">
             <legend>نطاق الأسئلة <span className="muted small">(اختياري، من 1 إلى {qs.length})</span></legend>
@@ -1042,15 +1154,15 @@ function Setup({ sel, isAll, qs, opts, setOpts, plan, total, rangeErr, canStart,
         </>
       )}
 
-      <label className="check"><input type="checkbox" checked={o.shuffle} onChange={e => set({ shuffle: e.target.checked })} />
-        <span>ترتيب واختيار عشوائي للأسئلة <span className="muted small">(لو حددت عدد أقل من المتاح بيتسحب عشوائي)</span></span></label>
+      {!o.comp && <label className="check"><input type="checkbox" checked={o.shuffle} onChange={e => set({ shuffle: e.target.checked })} />
+        <span>ترتيب واختيار عشوائي للأسئلة <span className="muted small">(لو حددت عدد أقل من المتاح بيتسحب عشوائي)</span></span></label>}
       <label className="check"><input type="checkbox" checked={o.shuffleOpts} onChange={e => set({ shuffleOpts: e.target.checked })} />
         <span>خلط ترتيب الاختيارات <span className="muted small">(لا تفعّله لو فيه اختيارات زي «جميع ما سبق»)</span></span></label>
 
       <div className={cx('summary', !canStart && 'bad')}>
         {canStart
-          ? <><b>{total}</b> سؤال في الامتحان <span className="muted small">({plan.mcq} اختياري + {plan.essay} مقالي{paged ? ` من ${plan.rows.length} صفحة` : ''})</span></>
-          : <span>{rangeErr ? 'صحّح النطاق الأول.' : 'مفيش أسئلة بالاختيارات دي، غيّر النوع أو النطاق.'}</span>}
+          ? <><b>{total}</b> سؤال في الامتحان <span className="muted small">({plan.mcq} اختياري + {plan.essay} مقالي{paged ? ` من ${plan.comp ? plan.pages : plan.rows.length} صفحة` : ''}{plan.comp ? ' · عشوائي' : ''})</span></>
+          : <span>{rangeErr ? 'صحّح النطاق الأول.' : o.comp ? 'اكتب عدد الأسئلة من كل نوع (أكبر من صفر) وتأكد إن فيه صفحات محددة.' : 'مفيش أسئلة بالاختيارات دي، غيّر النوع أو النطاق.'}</span>}
       </div>
       <button className="btn primary lg block" disabled={!canStart} onClick={() => { setNameVal(''); setNaming(true); }}><Icon name="plus" size={18} /> إنشاء الامتحان</button>
       <p className="muted small center-note">هتكتب اسم الامتحان قبل ما يتنشأ، وبعدها بيتحفظ في تبويب «الامتحانات».</p>

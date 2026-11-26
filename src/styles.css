@@ -502,3 +502,25 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
 .prompt-edit{margin-top:10px}
 .prompt-edit .row{margin-top:8px}
 textarea.prompt-area{min-height:340px;font-size:14.5px}
+
+/* امتحان شامل + مصادر الصفحات */
+.seg.two{grid-template-columns:repeat(2,1fr)}
+.prow.comp{grid-template-columns:minmax(0,1fr)}
+.psrc{display:inline-block;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.6;padding:0 6px;border-radius:99px;background:var(--brand-soft);color:var(--brand);font-weight:700;vertical-align:middle}
+.psrc.inline{max-width:140px;font-size:12px;margin-inline:6px}
+.src-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%}
+.src-pick label{font-weight:700;font-size:14px}
+.src-pick select{min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:160px;flex:1;max-width:280px}
+.srcchip{position:relative;display:inline-flex;align-items:center;padding:4px 14px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-size:14px;cursor:pointer;user-select:none}
+.srcchip input{position:absolute;opacity:0;inset:0;margin:0;width:100%;height:100%;cursor:pointer}
+.srcchip.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.srcchip:focus-within{outline:3px solid var(--brand);outline-offset:2px}
+.src-tag{display:inline-flex;align-items:center;gap:4px;padding-inline-end:2px}
+.src-tag .icon-btn{width:26px;height:26px;min-width:0;min-height:0}
+
+/* المصدر جوه الدرس */
+.lesson-item{margin-bottom:14px}
+.lesson-item .lesson-row{margin-bottom:6px}
+.src-head{padding:10px 12px 2px;font-weight:700;font-size:14px;color:var(--brand)}
+.src-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;width:100%}
+.src-add input{flex:1;min-width:160px}
